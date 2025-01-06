@@ -2,16 +2,13 @@
 
 import mysql.connector
 from mysql.connector import Error
+import os
+from db_connection import create_connection
 
 def add_columns_venditori():
     try:
-        # Connessione al database
-        connection = mysql.connector.connect(
-            host='localhost',
-            database='venditori_db',
-            user='app_user',
-            password='Informatic1992.-'
-        )
+        # Connessione al database usando le variabili d'ambiente
+        connection = create_connection()
         if connection.is_connected():
             cursor = connection.cursor()
             # Comandi SQL per aggiungere le colonne
@@ -30,6 +27,8 @@ def add_columns_venditori():
                     else:
                         print(f"Errore: {err}")
             cursor.close()
+        else:
+            print("Connessione al database fallita.")
     except Error as e:
         print(f"Errore durante l'aggiunta delle colonne: {e}")
     finally:
