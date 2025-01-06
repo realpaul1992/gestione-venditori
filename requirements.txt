@@ -1,0 +1,9 @@
+streamlit
+mysql-connector-python
+pandas
+streamlit-authenticator
+bcrypt
+pyyaml
+openpyxl
+python-dotenv
+plotly

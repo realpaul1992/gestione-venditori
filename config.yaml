@@ -1,0 +1,22 @@
+# config.yaml
+
+# Configurazione MySQL
+mysql:
+  host: localhost
+  database: venditori_db
+  user: app_user
+  password: Informatic1992.-
+
+# Configurazione dell'Autenticazione
+auth:
+  credentials:
+    usernames:
+      paolo_patelli:
+        email: paolo.patelli@salesflow.it  # 📧 Email dell'utente
+        name: Paolo Patelli                  # 📝 Nome completo dell'utente
+        password: "$2b$12$MUQY2jX69VgqGE2lfmb7huJIhhI0hAV6Tk2nEW9Is0DQAGna9nzta"  # 🔐 Password hashata
+
+  cookie:
+    expiry_days: 30                      # 📅 Durata del cookie in giorni
+    key: 192f6b314947a46e3845c8e9d4a08eec  # 🔑 Chiave segreta per il cookie (generata tramite script Python)
+    name: venditori_app_cookie            # 🍪 Nome del cookie
