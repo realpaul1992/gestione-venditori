@@ -11,10 +11,10 @@ def create_connection():
     try:
         connection = mysql.connector.connect(
             host=os.getenv('DB_HOST', 'localhost'),
+            port=int(os.getenv('DB_PORT', 3306)),
             database=os.getenv('DB_DATABASE', 'railway'),
             user=os.getenv('DB_USER', 'root'),
-            password=os.getenv('DB_PASSWORD', 'mdopkNSoSVTDnnuWFRnEWqMeqAOewWpt'),
-            port=int(os.getenv('DB_PORT', 3306))
+            password=os.getenv('DB_PASSWORD', 'mdopkNSoSVTDnnuWFRnEWqMeqAOewWpt')
         )
         if connection.is_connected():
             print("Connessione al database avvenuta con successo.")
@@ -276,9 +276,10 @@ def backup_database():
         db_user = os.getenv('DB_USER', 'root')
         db_password = os.getenv('DB_PASSWORD', 'mdopkNSoSVTDnnuWFRnEWqMeqAOewWpt')
         db_name = os.getenv('DB_DATABASE', 'railway')
+        db_port = os.getenv('DB_PORT', 3306)
         
         # Comando per il backup
-        command = f"mysqldump -h {db_host} -P {os.getenv('DB_PORT', 3306)} -u {db_user} -p{db_password} {db_name}"
+        command = f"mysqldump -h {db_host} -P {db_port} -u {db_user} -p{db_password} {db_name}"
         import subprocess
         result = subprocess.run(command, shell=True, capture_output=True, text=True)
         
