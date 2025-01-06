@@ -3,10 +3,6 @@
 import mysql.connector
 from mysql.connector import Error
 import os
-from dotenv import load_dotenv
-
-# Carica le variabili d'ambiente dal file .env
-load_dotenv()
 
 def create_connection():
     """
@@ -15,9 +11,10 @@ def create_connection():
     try:
         connection = mysql.connector.connect(
             host=os.getenv('DB_HOST', 'localhost'),
-            database=os.getenv('DB_DATABASE', 'venditori_db'),
-            user=os.getenv('DB_USER', 'app_user'),
-            password=os.getenv('DB_PASSWORD', 'Informatic1992.-')
+            database=os.getenv('DB_DATABASE', 'railway'),
+            user=os.getenv('DB_USER', 'root'),
+            password=os.getenv('DB_PASSWORD', 'mdopkNSoSVTDnnuWFRnEWqMeqAOewWpt'),
+            port=int(os.getenv('DB_PORT', 3306))
         )
         if connection.is_connected():
             print("Connessione al database avvenuta con successo.")
@@ -108,8 +105,8 @@ def add_venditore(connection, venditore):
         query = """
             INSERT INTO venditori 
             (nome_cognome, email, telefono, citta, esperienza_vendita, 
-             anno_nascita, settore_esperienza, partita_iva, agente_isenarco, cv, note)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             anno_nascita, settore_esperienza, partita_iva, agente_isenarco, cv, note, data_creazione)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
         """
         cursor.execute(query, venditore)
         connection.commit()
@@ -276,12 +273,12 @@ def backup_database():
     try:
         # Parametri di connessione
         db_host = os.getenv('DB_HOST', 'localhost')
-        db_user = os.getenv('DB_USER', 'app_user')
-        db_password = os.getenv('DB_PASSWORD', 'Informatic1992.-')
-        db_name = os.getenv('DB_DATABASE', 'venditori_db')
+        db_user = os.getenv('DB_USER', 'root')
+        db_password = os.getenv('DB_PASSWORD', 'mdopkNSoSVTDnnuWFRnEWqMeqAOewWpt')
+        db_name = os.getenv('DB_DATABASE', 'railway')
         
         # Comando per il backup
-        command = f"mysqldump -h {db_host} -u {db_user} -p{db_password} {db_name}"
+        command = f"mysqldump -h {db_host} -P {os.getenv('DB_PORT', 3306)} -u {db_user} -p{db_password} {db_name}"
         import subprocess
         result = subprocess.run(command, shell=True, capture_output=True, text=True)
         
@@ -301,13 +298,14 @@ def restore_database(sql_content):
     try:
         # Parametri di connessione
         db_host = os.getenv('DB_HOST', 'localhost')
-        db_user = os.getenv('DB_USER', 'app_user')
-        db_password = os.getenv('DB_PASSWORD', 'Informatic1992.-')
-        db_name = os.getenv('DB_DATABASE', 'venditori_db')
+        db_user = os.getenv('DB_USER', 'root')
+        db_password = os.getenv('DB_PASSWORD', 'mdopkNSoSVTDnnuWFRnEWqMeqAOewWpt')
+        db_name = os.getenv('DB_DATABASE', 'railway')
+        db_port = os.getenv('DB_PORT', 3306)
         
         import subprocess
         process = subprocess.Popen(
-            f"mysql -h {db_host} -u {db_user} -p{db_password} {db_name}",
+            f"mysql -h {db_host} -P {db_port} -u {db_user} -p{db_password} {db_name}",
             shell=True,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -378,8 +376,8 @@ def add_venditori_bulk(connection, venditori, overwrite=False):
             query_insert = """
                 INSERT INTO venditori 
                 (nome_cognome, email, telefono, citta, esperienza_vendita, 
-                 anno_nascita, settore_esperienza, partita_iva, agente_isenarco, cv, note)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 anno_nascita, settore_esperienza, partita_iva, agente_isenarco, cv, note, data_creazione)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
             """
             cursor.executemany(query_insert, venditori)
             connection.commit()
