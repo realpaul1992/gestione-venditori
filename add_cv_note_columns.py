@@ -11,10 +11,10 @@ def add_columns_venditori():
         connection = create_connection()
         if connection.is_connected():
             cursor = connection.cursor()
-            # Comandi SQL per aggiungere le colonne
+            # Comandi SQL per aggiungere le colonne con IF NOT EXISTS
             alter_table_queries = [
-                "ALTER TABLE venditori ADD COLUMN cv VARCHAR(255);",
-                "ALTER TABLE venditori ADD COLUMN note TEXT;"
+                "ALTER TABLE venditori ADD COLUMN IF NOT EXISTS cv VARCHAR(255);",
+                "ALTER TABLE venditori ADD COLUMN IF NOT EXISTS note TEXT;"
             ]
             for query in alter_table_queries:
                 try:
