@@ -12,8 +12,8 @@ from db_connection import (
     delete_venditore,
     verifica_note,
     initialize_settori,
-    backup_database,
-    restore_database,
+    backup_database_python,  # Import della nuova funzione di backup
+    restore_database_python, # Import della nuova funzione di ripristino
     add_venditori_bulk,
     get_existing_emails
 )
@@ -22,6 +22,7 @@ import os
 from datetime import datetime, timedelta
 import plotly.express as px  # Import di Plotly per grafici avanzati
 import base64  # Importato per il download del CV
+from io import BytesIO
 
 # Funzione per creare e memorizzare la connessione nel cache
 @st.cache_resource
@@ -80,24 +81,24 @@ def automatic_backup(connection):
     # Se è passato più di 24 ore, esegui un backup
     if current_time - last_backup_time > timedelta(hours=24):
         st.sidebar.info("Eseguendo backup automatico...")
-        successo, risultato = backup_database()
+        successo, risultato = backup_database_python(connection)  # Utilizza la nuova funzione
         if successo:
             # Crea un nome file con data e ora
             timestamp = current_time.strftime("%Y%m%d_%H%M%S")
-            backup_filename = f"backup_auto_{timestamp}.sql"
+            backup_filename = f"backup_auto_{timestamp}.zip"
             
-            # Salva il backup su disco
-            backup_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), backup_filename)
-            try:
-                with open(backup_path, 'w') as f:
-                    f.write(risultato)
-                st.sidebar.success(f"Backup automatico creato alle {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
-                
-                # Aggiorna l'ultimo backup
-                with open(last_backup_file, 'w') as f:
-                    f.write(current_time.strftime("%Y-%m-%d %H:%M:%S"))
-            except Exception as e:
-                st.sidebar.error(f"Errore nel salvare il backup automatico: {e}")
+            # Prepara il download del backup
+            st.sidebar.success(f"Backup automatico creato alle {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            st.sidebar.download_button(
+                label="📥 Scarica Backup Automatico",
+                data=risultato,
+                file_name=backup_filename,
+                mime='application/zip'
+            )
+            
+            # Aggiorna l'ultimo backup
+            with open(last_backup_file, 'w') as f:
+                f.write(current_time.strftime("%Y-%m-%d %H:%M:%S"))
         else:
             st.sidebar.error(f"Backup automatico fallito: {risultato}")
 
@@ -411,9 +412,6 @@ def main():
                 if st.button("Annulla Eliminazione", key="cancel_delete"):
                     st.session_state.delete_confirm_id = None
 
-    # Le altre schede (Dashboard, Gestisci Settori, Backup, Esporta/Importa) rimangono invariate
-    # ...
-
     # Scheda 3: Dashboard
     elif st.session_state.active_tab == "Dashboard":
         st.header("📊 Dashboard")
@@ -715,31 +713,25 @@ def main():
         st.markdown("### 📦 Esegui Backup Manuale del Database")
         if st.button("Crea Backup Manuale"):
             with st.spinner("Eseguendo il backup..."):
-                successo, risultato = backup_database()
+                successo, risultato = backup_database_python(connection)  # Utilizza la nuova funzione
                 if successo:
                     # Crea un nome file con data e ora
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    backup_filename = f"backup_manual_{timestamp}.sql"
+                    backup_filename = f"backup_manual_{timestamp}.zip"
 
-                    # Salva il backup su disco
-                    backup_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), backup_filename)
-                    try:
-                        with open(backup_path, 'w') as f:
-                            f.write(risultato)
-                        st.success("Backup creato con successo!")
-                        st.download_button(
-                            label="📥 Scarica Backup",
-                            data=risultato,
-                            file_name=backup_filename,
-                            mime="application/sql"
-                        )
-                        
-                        # Aggiorna l'ultimo backup
-                        current_time = datetime.now()
-                        with open('last_backup.txt', 'w') as f:
-                            f.write(current_time.strftime("%Y-%m-%d %H:%M:%S"))
-                    except Exception as e:
-                        st.error(f"Errore nel salvare il backup manuale: {e}")
+                    # Prepara il download del backup
+                    st.success("Backup creato con successo!")
+                    st.download_button(
+                        label="📥 Scarica Backup",
+                        data=risultato,
+                        file_name=backup_filename,
+                        mime="application/zip"
+                    )
+                    
+                    # Aggiorna l'ultimo backup
+                    current_time = datetime.now()
+                    with open('last_backup.txt', 'w') as f:
+                        f.write(current_time.strftime("%Y-%m-%d %H:%M:%S"))
                 else:
                     st.error(f"Errore durante il backup: {risultato}")
 
@@ -748,15 +740,15 @@ def main():
         # Sezione Ripristino del Database
         st.markdown("### 🔄 Ripristina il Database da un Backup")
         with st.form("form_ripristino"):
-            backup_file = st.file_uploader("Carica il file di backup SQL", type=["sql"])
+            backup_file = st.file_uploader("Carica il file di backup ZIP contenente i CSV delle tabelle", type=["zip"])
             ripristina_button = st.form_submit_button("Ripristina Database")
 
             if ripristina_button:
                 if backup_file is not None:
                     try:
-                        sql_content = backup_file.read().decode("utf-8")
+                        backup_zip_bytes = backup_file.read()
                         with st.spinner("Ripristinando il database..."):
-                            successo, messaggio = restore_database(sql_content)
+                            successo, messaggio = restore_database_python(connection, backup_zip_bytes)  # Utilizza la nuova funzione
                             if successo:
                                 st.success(messaggio)
                                 # Aggiorna l'ultimo backup
@@ -808,7 +800,6 @@ def main():
                         )
                     elif formato_export == "Excel":
                         # Converti in bytes utilizzando BytesIO
-                        from io import BytesIO
                         buffer = BytesIO()
                         df_export.to_excel(buffer, index=False, engine='openpyxl')
                         buffer.seek(0)
@@ -833,100 +824,43 @@ def main():
             ["CSV", "Excel"],
             key="formato_import"
         )
-        import_file = st.file_uploader("Carica il file CSV o Excel contenente i venditori", type=["csv", "xlsx"])
+        import_file = st.file_uploader("Carica il file ZIP contenente i CSV delle tabelle", type=["zip"])
 
         if import_file is not None:
             try:
-                if formato_import == "CSV":
-                    df_import = pd.read_csv(import_file, delimiter=';', encoding='utf-8')
-                elif formato_import == "Excel":
-                    df_import = pd.read_excel(import_file, engine='openpyxl')
-                
-                # Verifica che le colonne necessarie siano presenti
-                colonne_necessarie = [
-                    'nome_cognome', 'email', 'telefono', 'citta', 'esperienza_vendita',
-                    'anno_nascita', 'settore_esperienza', 'partita_iva', 'agente_isenarco',
-                    'cv', 'note'  # Assicurati che queste colonne esistano
-                ]
-                if not all(col in df_import.columns for col in colonne_necessarie):
-                    st.error(f"Il file deve contenere le seguenti colonne: {', '.join(colonne_necessarie)}")
+                backup_zip = zipfile.ZipFile(BytesIO(import_file.read()), 'r')
+                table_files = [file for file in backup_zip.namelist() if file.endswith('.csv')]
+
+                if not table_files:
+                    st.error("Il file ZIP non contiene file CSV validi.")
                 else:
-                    st.write(f"Totale venditori da importare: {len(df_import)}")
+                    st.write(f"Totale tabelle da importare: {len(table_files)}")
                     
                     # Mostra una preview dei dati
-                    st.dataframe(df_import.head())
+                    for file in table_files[:1]:  # Mostra solo la preview della prima tabella
+                        with backup_zip.open(file) as f:
+                            df_preview = pd.read_csv(f)
+                            st.write(f"Preview del file `{file}`:")
+                            st.dataframe(df_preview.head())
 
-                    # Prepara i dati per l'importazione
-                    venditori = []
-                    emails_import = []
-                    for index, row in df_import.iterrows():
-                        # Verifica se i campi obbligatori sono presenti
-                        if pd.notna(row['nome_cognome']) and pd.notna(row['email']) and pd.notna(row['citta']) and pd.notna(row['settore_esperienza']):
-                            venditore = (
-                                row['nome_cognome'],
-                                row['email'],
-                                row['telefono'] if pd.notna(row['telefono']) else "",
-                                row['citta'],
-                                int(row['esperienza_vendita']) if pd.notna(row['esperienza_vendita']) else 0,
-                                int(row['anno_nascita']) if pd.notna(row['anno_nascita']) else 1900,
-                                row['settore_esperienza'],
-                                row['partita_iva'] if pd.notna(row['partita_iva']) else "No",
-                                row['agente_isenarco'] if pd.notna(row['agente_isenarco']) else "No",
-                                row['cv'] if 'cv' in row and pd.notna(row['cv']) else None,  # Assicurati che il campo 'cv' esista
-                                row['note'] if 'note' in row and pd.notna(row['note']) else "",
-                            )
-                            venditori.append(venditore)
-                            emails_import.append(row['email'])
-                        else:
-                            st.warning(f"Riga {index + 2} ignorata: Campi obbligatori mancanti.")
-                    
-                    if venditori:
-                        # Recupera le email esistenti nel database
-                        existing_emails = get_existing_emails(connection, emails_import)
-                        duplicati = [venditore for venditore in venditori if venditore[1] in existing_emails]
-                        nuovi = [venditore for venditore in venditori if venditore[1] not in existing_emails]
-
-                        if duplicati:
-                            st.warning(f"**{len(duplicati)}** venditori già esistono nel database.")
-
-                            # Mostra le opzioni di gestione dei duplicati
-                            gestione_dup = st.radio(
-                                "Come vuoi gestire i venditori duplicati?",
-                                ("Ignora i duplicati e aggiungi solo i nuovi venditori", 
-                                 "Sostituisci i venditori esistenti con quelli importati")
-                            )
-
-                            if st.button("Importa Venditori"):
-                                if gestione_dup == "Ignora i duplicati e aggiungi solo i nuovi venditori":
-                                    # Inserisci solo i nuovi
-                                    successo, messaggio = add_venditori_bulk(connection, nuovi, overwrite=False)
-                                    if successo:
-                                        st.success(messaggio)
-                                        st.info(f"{len(nuovi)} venditori aggiunti.")
-                                    else:
-                                        st.error(messaggio)
-                                elif gestione_dup == "Sostituisci i venditori esistenti con quelli importati":
-                                    # Aggiorna i duplicati e inserisci i nuovi
-                                    successo_update, messaggio_update = add_venditori_bulk(connection, duplicati, overwrite=True)
-                                    successo_insert, messaggio_insert = add_venditori_bulk(connection, nuovi, overwrite=False)
-                                    if successo_update and successo_insert:
-                                        st.success("Venditori esistenti aggiornati con successo.")
-                                        st.success(messaggio_insert)
-                                    else:
-                                        st.error("Errore durante l'aggiornamento e l'inserimento dei venditori.")
-                        else:
-                            # Nessun duplicato, inserisci tutti
-                            if st.button("Importa Venditori"):
-                                successo, messaggio = add_venditori_bulk(connection, venditori, overwrite=False)
+                    if st.button("Importa Database"):
+                        with st.spinner("Importando il database..."):
+                            try:
+                                # Leggi tutti i CSV dal ZIP
+                                backup_zip_bytes = import_file.read()
+                                successo, messaggio = restore_database_python(connection, backup_zip_bytes)
                                 if successo:
                                     st.success(messaggio)
-                                    st.info(f"{len(venditori)} venditori aggiunti.")
+                                    # Aggiorna i dati visualizzati
+                                    st.session_state.venditori_data = search_venditori(connection)
                                 else:
                                     st.error(messaggio)
-                    else:
-                        st.info("Nessun venditore valido da importare.")
+                            except Exception as e:
+                                st.error(f"Errore durante l'importazione: {e}")
+            except zipfile.BadZipFile:
+                st.error("Il file caricato non è un file ZIP valido.")
             except Exception as e:
-                st.error(f"Errore nell'importazione: {e}")
+                st.error(f"Errore durante la lettura del file ZIP: {e}")
 
 if __name__ == "__main__":
     main()
