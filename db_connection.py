@@ -3,6 +3,9 @@
 import mysql.connector
 from mysql.connector import Error
 import os
+import pandas as pd
+from io import StringIO, BytesIO
+import zipfile
 
 def create_connection():
     """
@@ -265,62 +268,64 @@ def verifica_note(connection, venditore_id):
         print(f"Errore nella verifica delle note: {e}")
         return ""
 
-def backup_database():
+def backup_database_python(connection):
     """
-    Esegue un backup del database utilizzando mysqldump.
-    :return: Tuple (successo: bool, risultato: str)
+    Esegue un backup del database esportando ogni tabella in un file CSV e comprimendoli in un ZIP.
+    :param connection: Connessione al database.
+    :return: Tuple (successo: bool, risultato: bytes o messaggio di errore)
     """
     try:
-        # Parametri di connessione
-        db_host = os.getenv('DB_HOST', 'localhost')
-        db_user = os.getenv('DB_USER', 'root')
-        db_password = os.getenv('DB_PASSWORD', 'mdopkNSoSVTDnnuWFRnEWqMeqAOewWpt')
-        db_name = os.getenv('DB_DATABASE', 'railway')
-        db_port = os.getenv('DB_PORT', 3306)
+        cursor = connection.cursor()
+        cursor.execute("SHOW TABLES")
+        tables = cursor.fetchall()
+        cursor.close()
+
+        backup_zip = BytesIO()
+        with zipfile.ZipFile(backup_zip, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for table_tuple in tables:
+                table = table_tuple[0]
+                df = pd.read_sql(f"SELECT * FROM {table}", connection)
+                csv_buffer = StringIO()
+                df.to_csv(csv_buffer, index=False)
+                zipf.writestr(f"{table}.csv", csv_buffer.getvalue())
         
-        # Comando per il backup
-        command = f"mysqldump -h {db_host} -P {db_port} -u {db_user} -p{db_password} {db_name}"
-        import subprocess
-        result = subprocess.run(command, shell=True, capture_output=True, text=True)
-        
-        if result.returncode == 0:
-            return True, result.stdout
-        else:
-            return False, result.stderr
+        backup_zip.seek(0)
+        return True, backup_zip.getvalue()
     except Exception as e:
         return False, str(e)
 
-def restore_database(sql_content):
+def restore_database_python(connection, backup_zip_bytes):
     """
-    Ripristina il database utilizzando il contenuto SQL fornito.
-    :param sql_content: Stringa contenente i comandi SQL per il ripristino.
+    Ripristina il database importando i dati da un file ZIP contenente CSV delle tabelle.
+    :param connection: Connessione al database.
+    :param backup_zip_bytes: Contenuto del file ZIP in bytes.
     :return: Tuple (successo: bool, messaggio: str)
     """
     try:
-        # Parametri di connessione
-        db_host = os.getenv('DB_HOST', 'localhost')
-        db_user = os.getenv('DB_USER', 'root')
-        db_password = os.getenv('DB_PASSWORD', 'mdopkNSoSVTDnnuWFRnEWqMeqAOewWpt')
-        db_name = os.getenv('DB_DATABASE', 'railway')
-        db_port = os.getenv('DB_PORT', 3306)
-        
-        import subprocess
-        process = subprocess.Popen(
-            f"mysql -h {db_host} -P {db_port} -u {db_user} -p{db_password} {db_name}",
-            shell=True,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        stdout, stderr = process.communicate(sql_content)
-        
-        if process.returncode == 0:
-            return True, "Database ripristinato con successo."
-        else:
-            return False, stderr
+        backup_zip = BytesIO(backup_zip_bytes)
+        with zipfile.ZipFile(backup_zip, 'r') as zipf:
+            for file in zipf.namelist():
+                if file.endswith('.csv'):
+                    table = file[:-4]  # Rimuove '.csv'
+                    df = pd.read_csv(zipf.open(file))
+                    cursor = connection.cursor()
+                    
+                    # Pulizia della tabella prima dell'inserimento
+                    cursor.execute(f"TRUNCATE TABLE {table}")
+                    
+                    # Preparazione dei dati per l'inserimento
+                    cols = "`,`".join([str(i) for i in df.columns.tolist()])
+                    values = ", ".join(["%s"] * len(df.columns))
+                    insert_stmt = f"INSERT INTO `{table}` (`{cols}`) VALUES ({values})"
+                    
+                    # Inserimento dei dati in batch
+                    data = [tuple(row) for row in df.to_numpy()]
+                    cursor.executemany(insert_stmt, data)
+                    connection.commit()
+                    cursor.close()
+        return True, "Database ripristinato con successo."
     except Exception as e:
-        return False, str(e)
+        return False, f"Errore durante il ripristino del database: {e}"
 
 def add_venditori_bulk(connection, venditori, overwrite=False):
     """
