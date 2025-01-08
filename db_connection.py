@@ -18,7 +18,7 @@ def create_connection():
             port=int(os.getenv('DB_PORT', 3306)),
             database=os.getenv('DB_DATABASE', 'railway'),
             user=os.getenv('DB_USER', 'root'),
-            password=os.getenv('DB_PASSWORD', 'mdopkNSoSVTDnnuWFRnEWqMeqAOewWpt')
+            password=os.getenv('DB_PASSWORD', 'mdopkNSoSVTDnnuWFRnEWqMeqAOewWpt')  # Sostituisci con la tua password
         )
         if connection.is_connected():
             print("Connessione al database avvenuta con successo.")
@@ -34,7 +34,7 @@ def initialize_settori(connection):
     try:
         cursor = connection.cursor()
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS settori (
+            CREATE TABLE IF NOT EXISTS Settori (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 nome VARCHAR(255) UNIQUE NOT NULL
             )
@@ -42,7 +42,7 @@ def initialize_settori(connection):
         connection.commit()
         cursor.close()
     except Error as e:
-        print(f"Errore nell'inizializzare la tabella settori: {e}")
+        print(f"Errore nell'inizializzare la tabella Settori: {e}")
 
 def add_settore(connection, nome_settore):
     """
@@ -53,7 +53,7 @@ def add_settore(connection, nome_settore):
     """
     try:
         cursor = connection.cursor()
-        query = "INSERT INTO settori (nome) VALUES (%s)"
+        query = "INSERT INTO Settori (nome) VALUES (%s)"
         cursor.execute(query, (nome_settore,))
         connection.commit()
         cursor.close()
@@ -73,28 +73,12 @@ def get_settori(connection):
     """
     try:
         cursor = connection.cursor()
-        cursor.execute("SELECT nome FROM settori ORDER BY nome ASC")
+        cursor.execute("SELECT nome FROM Settori ORDER BY nome ASC")
         records = cursor.fetchall()
         cursor.close()
         return [record[0] for record in records]
     except Error as e:
         print(f"Errore nel recuperare i settori: {e}")
-        return []
-
-def get_available_cities(connection):
-    """
-    Recupera tutte le città presenti nel database.
-    :param connection: Connessione al database.
-    :return: Lista di città.
-    """
-    try:
-        cursor = connection.cursor()
-        cursor.execute("SELECT DISTINCT citta FROM venditori ORDER BY citta ASC")
-        records = cursor.fetchall()
-        cursor.close()
-        return [record[0] for record in records]
-    except Error as e:
-        print(f"Errore nel recuperare le città: {e}")
         return []
 
 def add_venditore(connection, venditore):
@@ -107,9 +91,9 @@ def add_venditore(connection, venditore):
     try:
         cursor = connection.cursor()
         query = """
-            INSERT INTO venditori 
+            INSERT INTO Venditori 
             (nome_cognome, email, telefono, citta, esperienza_vendita, 
-             anno_nascita, settore_id, partita_iva, agente_isenarco, cv, note, data_creazione)
+             anno_nascita, settore_esperienza, partita_iva, agente_isenarco, cv, note, data_creazione)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
             ON DUPLICATE KEY UPDATE
                 nome_cognome=VALUES(nome_cognome),
@@ -117,7 +101,7 @@ def add_venditore(connection, venditore):
                 citta=VALUES(citta),
                 esperienza_vendita=VALUES(esperienza_vendita),
                 anno_nascita=VALUES(anno_nascita),
-                settore_id=VALUES(settore_id),
+                settore_esperienza=VALUES(settore_esperienza),
                 partita_iva=VALUES(partita_iva),
                 agente_isenarco=VALUES(agente_isenarco),
                 cv=VALUES(cv),
@@ -130,7 +114,7 @@ def add_venditore(connection, venditore):
             venditore['citta'],
             venditore['esperienza_vendita'],
             venditore['anno_nascita'],
-            venditore['settore_id'],
+            venditore['settore_esperienza'],
             venditore['partita_iva'],
             venditore['agente_isenarco'],
             venditore['cv'],
@@ -162,39 +146,38 @@ def search_venditori(connection, nome=None, citta=None, settore=None, partita_iv
         cursor = connection.cursor(dictionary=True)
         query = """
             SELECT 
-                v.id, 
-                v.nome_cognome, 
-                v.email, 
-                v.telefono, 
-                v.citta, 
-                v.esperienza_vendita, 
-                v.anno_nascita, 
-                s.nome AS settore_esperienza, 
-                v.partita_iva, 
-                v.agente_isenarco, 
-                v.cv, 
-                v.note, 
-                v.data_creazione
-            FROM venditori v
-            LEFT JOIN settori s ON v.settore_id = s.id
+                id, 
+                nome_cognome, 
+                email, 
+                telefono, 
+                citta, 
+                esperienza_vendita, 
+                anno_nascita, 
+                settore_esperienza, 
+                partita_iva, 
+                agente_isenarco, 
+                cv, 
+                note, 
+                data_creazione
+            FROM Venditori
             WHERE 1=1
         """
         params = []
         
         if nome:
-            query += " AND v.nome_cognome LIKE %s"
+            query += " AND nome_cognome LIKE %s"
             params.append(f"%{nome}%")
         if citta:
-            query += " AND v.citta = %s"
+            query += " AND citta = %s"
             params.append(citta)
         if settore:
-            query += " AND s.nome = %s"
+            query += " AND settore_esperienza = %s"
             params.append(settore)
         if partita_iva and partita_iva != "Tutti":
-            query += " AND v.partita_iva = %s"
+            query += " AND partita_iva = %s"
             params.append(partita_iva)
         if agente_isenarco and agente_isenarco != "Tutti":
-            query += " AND v.agente_isenarco = %s"
+            query += " AND agente_isenarco = %s"
             params.append(agente_isenarco)
         
         cursor.execute(query, tuple(params))
@@ -214,7 +197,7 @@ def delete_venditore(connection, venditore_id):
     """
     try:
         cursor = connection.cursor()
-        query = "DELETE FROM venditori WHERE id = %s"
+        query = "DELETE FROM Venditori WHERE id = %s"
         cursor.execute(query, (venditore_id,))
         connection.commit()
         cursor.close()
@@ -222,76 +205,6 @@ def delete_venditore(connection, venditore_id):
     except Error as e:
         print(f"Errore nell'eliminare il venditore: {e}")
         return False, f"Errore nell'eliminare il venditore: {e}"
-
-def update_venditore(connection, venditore_id, nome_cognome, email, telefono, citta, esperienza_vendita, anno_nascita, settore_id, partita_iva, agente_isenarco, cv_path, note):
-    """
-    Aggiorna i dati di un venditore esistente.
-    :param connection: Connessione al database.
-    :param venditore_id: ID del venditore da aggiornare.
-    :param nome_cognome: Nome e cognome aggiornati.
-    :param email: Email aggiornata.
-    :param telefono: Telefono aggiornato.
-    :param citta: Città aggiornata.
-    :param esperienza_vendita: Esperienza nella vendita aggiornata.
-    :param anno_nascita: Anno di nascita aggiornato.
-    :param settore_id: ID del settore di esperienza aggiornato.
-    :param partita_iva: Partita IVA aggiornata.
-    :param agente_isenarco: Stato di iscrizione Enasarco aggiornato.
-    :param cv_path: Percorso del CV aggiornato.
-    :param note: Note aggiornate.
-    :return: Tuple (successo: bool, messaggio: str)
-    """
-    try:
-        cursor = connection.cursor()
-        query = """
-            UPDATE venditori 
-            SET 
-                nome_cognome = %s,
-                email = %s,
-                telefono = %s,
-                citta = %s,
-                esperienza_vendita = %s,
-                anno_nascita = %s,
-                settore_id = %s,
-                partita_iva = %s,
-                agente_isenarco = %s,
-                cv = %s,
-                note = %s
-            WHERE id = %s
-        """
-        cursor.execute(query, (
-            nome_cognome, email, telefono, citta, esperienza_vendita,
-            anno_nascita, settore_id, partita_iva, agente_isenarco,
-            cv_path, note, venditore_id
-        ))
-        connection.commit()
-        cursor.close()
-        return True, "Venditore aggiornato con successo."
-    except mysql.connector.IntegrityError as e:
-        # Gestisce errori di duplicazione email
-        print(f"Errore nell'aggiornare il venditore: {e}")
-        return False, f"Errore nell'aggiornare il venditore: {e}"
-    except Error as e:
-        print(f"Errore nell'aggiornare il venditore: {e}")
-        return False, f"Errore nell'aggiornare il venditore: {e}"
-
-def verifica_note(connection, venditore_id):
-    """
-    Verifica e restituisce le note aggiornate di un venditore.
-    :param connection: Connessione al database.
-    :param venditore_id: ID del venditore.
-    :return: Stringa delle note aggiornate.
-    """
-    try:
-        cursor = connection.cursor()
-        query = "SELECT note FROM venditori WHERE id = %s"
-        cursor.execute(query, (venditore_id,))
-        record = cursor.fetchone()
-        cursor.close()
-        return record[0] if record else ""
-    except Error as e:
-        print(f"Errore nella verifica delle note: {e}")
-        return ""
 
 def backup_database_python(connection):
     """
@@ -365,14 +278,14 @@ def add_venditori_bulk(connection, venditori, overwrite=False):
         if overwrite:
             # Aggiorna i record esistenti basati sull'email
             query_update = """
-                UPDATE venditori 
+                UPDATE Venditori 
                 SET 
                     nome_cognome = %s,
                     telefono = %s,
                     citta = %s,
                     esperienza_vendita = %s,
                     anno_nascita = %s,
-                    settore_id = %s,
+                    settore_esperienza = %s,
                     partita_iva = %s,
                     agente_isenarco = %s,
                     cv = %s,
@@ -382,17 +295,17 @@ def add_venditori_bulk(connection, venditori, overwrite=False):
             # Preparare i dati per l'aggiornamento
             venditori_update = [
                 (
-                    venditore['nome_cognome'],  # nome_cognome
-                    venditore['telefono'],      # telefono
-                    venditore['citta'],         # citta
-                    venditore['esperienza_vendita'],  # esperienza_vendita
-                    venditore['anno_nascita'],  # anno_nascita
-                    venditore['settore_id'],    # settore_id
-                    venditore['partita_iva'],   # partita_iva
-                    venditore['agente_isenarco'],  # agente_isenarco
-                    venditore['cv'],            # cv
-                    venditore['note'],          # note
-                    venditore['email']          # email
+                    venditore['nome_cognome'],      # nome_cognome
+                    venditore['telefono'],          # telefono
+                    venditore['citta'],             # citta
+                    venditore['esperienza_vendita'],# esperienza_vendita
+                    venditore['anno_nascita'],      # anno_nascita
+                    venditore['settore_esperienza'],# settore_esperienza
+                    venditore['partita_iva'],       # partita_iva
+                    venditore['agente_isenarco'],   # agente_isenarco
+                    venditore['cv'],                # cv
+                    venditore['note'],              # note
+                    venditore['email']              # email
                 )
                 for venditore in venditori
             ]
@@ -405,9 +318,9 @@ def add_venditori_bulk(connection, venditori, overwrite=False):
         else:
             # Inserisce solo i venditori non esistenti
             query_insert = """
-                INSERT INTO venditori 
+                INSERT INTO Venditori 
                 (nome_cognome, email, telefono, citta, esperienza_vendita, 
-                 anno_nascita, settore_id, partita_iva, agente_isenarco, cv, note, data_creazione)
+                 anno_nascita, settore_esperienza, partita_iva, agente_isenarco, cv, note, data_creazione)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
             """
             venditori_insert = [
@@ -418,7 +331,7 @@ def add_venditori_bulk(connection, venditori, overwrite=False):
                     venditore['citta'],
                     venditore['esperienza_vendita'],
                     venditore['anno_nascita'],
-                    venditore['settore_id'],
+                    venditore['settore_esperienza'],
                     venditore['partita_iva'],
                     venditore['agente_isenarco'],
                     venditore['cv'],
@@ -448,7 +361,7 @@ def get_existing_emails(connection, emails):
         if not emails:
             return set()
         format_strings = ','.join(['%s'] * len(emails))
-        query = f"SELECT email FROM venditori WHERE email IN ({format_strings})"
+        query = f"SELECT email FROM Venditori WHERE email IN ({format_strings})"
         cursor.execute(query, tuple(emails))
         records = cursor.fetchall()
         cursor.close()
