@@ -7,3 +7,6 @@ pyyaml
 openpyxl
 python-dotenv
 plotly
+fastapi
+uvicorn
+pydantic[email]
