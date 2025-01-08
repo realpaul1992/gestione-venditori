@@ -1,28 +1,30 @@
+# app.py
+
 import streamlit as st
-import requests  # per eventuali chiamate REST al backend FastAPI
+from db_connection import (
+    create_connection, 
+    add_venditore, 
+    search_venditori, 
+    add_settore, 
+    get_settori, 
+    get_available_cities,  
+    update_venditore,
+    delete_venditore,
+    verifica_note,
+    initialize_settori,
+    backup_database_python,  # Import della nuova funzione di backup
+    restore_database_python, # Import della nuova funzione di ripristino
+    add_venditori_bulk,
+    get_existing_emails
+)
 import pandas as pd
 import os
 from datetime import datetime, timedelta
-import plotly.express as px
-import base64
+import plotly.express as px  # Import di Plotly per grafici avanzati
+import base64  # Importato per il download del CV
 from io import BytesIO
-import zipfile
 
-# Import delle funzioni dal tuo db_connection.py
-from db_connection import (
-    create_connection,
-    get_settori,
-    get_available_cities,   # Assicurati di averla definita in db_connection.py
-    search_venditori,       # Restituisce lista di dizionari
-    delete_venditore,
-    initialize_settori,
-    backup_database_python,
-    restore_database_python
-)
-
-###############################################################################
-# 1) Crea la connessione e inizializza i settori
-###############################################################################
+# Funzione per creare e memorizzare la connessione nel cache
 @st.cache_resource
 def get_connection():
     connection = create_connection()
@@ -30,9 +32,33 @@ def get_connection():
         initialize_settori(connection)
     return connection
 
-###############################################################################
-# 2) Esegui, se necessario, il backup automatico
-###############################################################################
+# Funzione per caricare tutte le città dal CSV
+@st.cache_data
+def load_all_cities():
+    try:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        csv_path = os.path.join(current_dir, 'italian_cities.csv')
+        
+        if not os.path.exists(csv_path):
+            st.warning("Il file 'italian_cities.csv' non è stato trovato nella directory corrente.")
+            return []
+        
+        df = pd.read_csv(csv_path, delimiter=';', encoding='utf-8')
+        df.columns = df.columns.str.strip()
+        
+        if 'denominazione_ita' not in df.columns:
+            st.warning("La colonna 'denominazione_ita' non è presente nel CSV.")
+            return []
+        
+        cities = df['denominazione_ita'].dropna().unique().tolist()
+        return sorted(cities)
+    except pd.errors.ParserError:
+        st.error("Errore nella lettura del file CSV.")
+        return []
+    except Exception as e:
+        st.error(f"Errore inaspettato: {e}")
+        return []
+
 def automatic_backup(connection):
     """
     Esegue un backup automatico se è passato più di 24 ore dall'ultimo backup.
@@ -48,17 +74,20 @@ def automatic_backup(connection):
                 last_backup_time = datetime.strptime(last_backup_time_str, "%Y-%m-%d %H:%M:%S")
         except Exception as e:
             st.sidebar.error(f"Errore nel leggere il file di ultimo backup: {e}")
-            last_backup_time = current_time - timedelta(days=1)
+            last_backup_time = current_time - timedelta(days=1)  # Forza il backup in caso di errore
     else:
-        last_backup_time = current_time - timedelta(days=1)
+        last_backup_time = current_time - timedelta(days=1)  # Forza il backup la prima volta
 
     # Se è passato più di 24 ore, esegui un backup
     if current_time - last_backup_time > timedelta(hours=24):
         st.sidebar.info("Eseguendo backup automatico...")
-        successo, risultato = backup_database_python(connection)
+        successo, risultato = backup_database_python(connection)  # Utilizza la nuova funzione
         if successo:
+            # Crea un nome file con data e ora
             timestamp = current_time.strftime("%Y%m%d_%H%M%S")
             backup_filename = f"backup_auto_{timestamp}.zip"
+            
+            # Prepara il download del backup
             st.sidebar.success(f"Backup automatico creato alle {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
             st.sidebar.download_button(
                 label="📥 Scarica Backup Automatico",
@@ -66,40 +95,35 @@ def automatic_backup(connection):
                 file_name=backup_filename,
                 mime='application/zip'
             )
+            
+            # Aggiorna l'ultimo backup
             with open(last_backup_file, 'w') as f:
                 f.write(current_time.strftime("%Y-%m-%d %H:%M:%S"))
         else:
             st.sidebar.error(f"Backup automatico fallito: {risultato}")
 
-###############################################################################
-# 3) Funzione di supporto per calcolare l'indice dell'anno di nascita
-###############################################################################
 def anno_nascita_index(anno):
+    """
+    Calcola l'indice dell'anno di nascita per il selectbox.
+    """
     anni = list(range(1900, 2025))
     if anno in anni:
         return anni.index(anno)
     else:
-        return 0
+        return 0  # Default a 1900 se l'anno non è trovato
 
-###############################################################################
-# 4) Funzione principale Streamlit
-###############################################################################
 def main():
-    st.set_page_config(
-        page_title="Gestione Venditori",
-        layout="wide",
-        initial_sidebar_state="expanded",
-        page_icon="📈"
-    )
+    # Configura la pagina Streamlit con un tema chiaro
+    st.set_page_config(page_title="Gestione Venditori", layout="wide", initial_sidebar_state="expanded", page_icon="📈")
 
-    # Logo
-    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logo.svg')
+    # Inserisci il logo aziendale all'inizio della pagina
+    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logo.svg')  # Assicurati che il percorso sia corretto
     if os.path.exists(logo_path):
-        st.image(logo_path, width=250)
+        st.image(logo_path, width=250)  # Ingrandisci il logo a 250 pixel
     else:
-        st.warning("Logo aziendale non trovato. Assicurati che 'logo.svg' sia nella directory.")
+        st.warning("Logo aziendale non trovato. Assicurati che 'logo.svg' sia nella directory corrente.")
 
-    # Inizializzazioni in session_state
+    # Inizializza tutte le variabili necessarie nella session_state
     if 'venditori_data' not in st.session_state:
         st.session_state.venditori_data = []
     if 'active_tab' not in st.session_state:
@@ -107,34 +131,34 @@ def main():
     if 'delete_confirm_id' not in st.session_state:
         st.session_state.delete_confirm_id = None
     if 'display_count' not in st.session_state:
-        st.session_state.display_count = 10
+        st.session_state.display_count = 10  # Numero iniziale di venditori da mostrare
 
-    # Connessione al DB
+    # Rimuovi il titolo principale
+    # st.title("📈 Gestione dei Venditori")  # Rimosso come richiesto
+
+    # Ottieni la connessione al database
     connection = get_connection()
+
     if not connection:
         st.error("Impossibile connettersi al database.")
         st.stop()
 
-    # Caricamento CSV delle città (se lo usi localmente)
-    # Altrimenti potresti usare get_available_cities(connection) direttamente
-    # qui se preferisci la lista di città dal DB. A te la scelta.
-    # Esempio: all_cities = get_available_cities(connection)
-    # Se vuoi caricare dal CSV:
-    all_cities = []
+    # Caricamento automatizzato del file CSV delle città italiane
+    all_cities = load_all_cities()
+    if not all_cities:
+        st.warning("Verifica che il file 'italian_cities.csv' sia presente nella stessa directory di app.py.")
 
-    # Esegui backup automatico
-    automatic_backup(connection)
-
-    # Opzioni schede
+    # Definisci le opzioni delle schede
     schede = [
         "Inserisci Venditore",
         "Cerca Venditori",
         "Dashboard",
         "Gestisci Settori e Profili Venditori",
         "Backup e Ripristino",
-        "Esporta/Importa Venditori"
+        "Esporta/Importa Venditori"  # Nuova Scheda
     ]
 
+    # Barra laterale per la navigazione
     st.sidebar.title("📋 Navigazione")
     st.session_state.active_tab = st.sidebar.radio(
         "Seleziona la sezione:",
@@ -143,144 +167,151 @@ def main():
         key="schede_radio"
     )
 
-    # Funzioni di supporto eliminazione
+    # Esegui il backup automatico all'avvio
+    automatic_backup(connection)
+
+    # Funzione per gestire l'eliminazione
     def handle_delete(venditore_id):
         st.session_state.delete_confirm_id = venditore_id
 
+    # Funzione per confermare l'eliminazione
     def confirm_delete(venditore_id):
         successo, messaggio = delete_venditore(connection, venditore_id)
         if successo:
             st.success(messaggio)
-            # Rimuovi dalla venditori_data
-            st.session_state.venditori_data = [
-                v for v in st.session_state.venditori_data if v["id"] != venditore_id
-            ]
+            # Rimuovi il venditore dai dati visualizzati
+            st.session_state.venditori_data = [v for v in st.session_state.venditori_data if v[0] != venditore_id]
         else:
             st.error(messaggio)
         st.session_state.delete_confirm_id = None
 
-    ############################################################################
-    # ======================  SCHEDA 1: INSERISCI VENDITORE ====================
-    ############################################################################
+    # Scheda 1: Inserisci Venditore
     if st.session_state.active_tab == "Inserisci Venditore":
         st.header("📥 Inserisci Nuovo Venditore")
         with st.form("form_inserisci_venditore"):
+            # Miglioramento del layout del form usando colonne
             col1, col2, col3 = st.columns(3)
-
+            
             with col1:
                 nome_cognome = st.text_input("Nome e Cognome", placeholder="Inserisci il nome completo")
                 email = st.text_input("Email", placeholder="Inserisci l'email")
                 telefono = st.text_input("Telefono", placeholder="Inserisci il numero di telefono")
-
+            
             with col2:
-                # Se usi le all_cities dal CSV
-                # O se preferisci get_available_cities dal DB, usa:
-                # available_cities = get_available_cities(connection)
-                # e poi citta = st.selectbox("Città", available_cities)
                 if all_cities:
                     citta = st.selectbox("Città", all_cities)
                 else:
-                    citta = st.text_input("Città (nessun CSV caricato)")
-
+                    citta = st.selectbox("Città", ["Carica prima il CSV"])
                 esperienza_vendita = st.select_slider(
-                    "Esperienza nella vendita (anni)",
-                    options=list(range(0, 101)),
+                    "Esperienza nella vendita (anni)", 
+                    options=list(range(0, 101)), 
                     value=0
                 )
-                anno_nascita = st.selectbox("Anno di Nascita", options=list(range(1900, 2025)))
-
+                anno_nascita = st.selectbox(
+                    "Anno di Nascita", 
+                    options=list(range(1900, 2025))
+                )
+            
             with col3:
                 settori = get_settori(connection)
                 if settori:
-                    settore_esperienza = st.selectbox("Settore di Esperienza", settori)
+                    settore_esperienza = st.selectbox(
+                        "Settore di Esperienza", 
+                        settori
+                    )
                 else:
-                    settore_esperienza = st.selectbox("Settore di Esperienza", ["Carica prima i settori"])
-
-                partita_iva = st.selectbox("Partita IVA", ["Sì", "No"])
-                agente_isenarco = st.selectbox("Agente Iscritto Enasarco", ["Sì", "No"])
-
+                    settore_esperienza = st.selectbox(
+                        "Settore di Esperienza", 
+                        ["Carica prima i settori"]
+                    )
+                partita_iva = st.selectbox(
+                    "Partita IVA", 
+                    options=["Sì", "No"]
+                )
+                agente_isenarco = st.selectbox(
+                    "Agente Iscritto Enasarco", 
+                    options=["Sì", "No"]
+                )
+            
+            # Sezione per CV e Note senza il titolo
             col4, col5 = st.columns([2, 3])
             with col4:
-                cv_file = st.file_uploader("Carica CV (PDF)", type=["pdf"])
+                cv_file = st.file_uploader("Carica il CV (PDF)", type=["pdf"])
             with col5:
                 note = st.text_area("Note", placeholder="Inserisci eventuali note")
-
+            
             submit_button = st.form_submit_button("Aggiungi Venditore")
-
-        if submit_button:
-            # Esempio di invio dati a un backend FastAPI
-            # Invece, se vuoi scrivere direttamente sul DB, devi usare la tua vecchia add_venditore
-            # a te la scelta. Qui simuliamo la chiamata a un endpoint /inserisci_venditore
-            if (nome_cognome and email and citta and
+            if submit_button:
+                if (nome_cognome and email and citta and 
+                    citta != "Carica prima il CSV" and 
                     settore_esperienza != "Carica prima i settori"):
-                cv_url = None
-                if cv_file is not None:
-                    # Avviso: senza un vero storage, salverai localmente in una cartella
-                    st.warning("Gestione del caricamento CV non implementata su hosting. Uso cv_url=None.")
-                    # O caricalo su un servizio di file-hosting e ottieni un link
-
-                # Dati
-                data = {
-                    "nome_cognome": nome_cognome,
-                    "email": email,
-                    "telefono": telefono,
-                    "citta": citta,
-                    "esperienza_vendita": esperienza_vendita,
-                    "anno_nascita": anno_nascita,
-                    "settore_esperienza": settore_esperienza,
-                    "partita_iva": partita_iva,
-                    "agente_isenarco": agente_isenarco,
-                    "cv": cv_url if cv_url else "",
-                    "note": note.strip() if note else ""
-                }
-
-                # Esempio: se hai definito le chiavi in st.secrets
-                # altrimenti scrivi le costanti manualmente
-                API_URL = st.secrets.get("API_URL", "https://gestione-venditori-production.up.railway.app/inserisci_venditore")
-                API_TOKEN = st.secrets.get("API_TOKEN", "0ed0d85a-3820-47e8-a310-b6e88e6d06f3")
-                headers = {
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {API_TOKEN}"
-                }
-
-                try:
-                    r = requests.post(API_URL + "/inserisci_venditore", json=data, headers=headers)
-                    if r.status_code == 200:
-                        st.success("Venditore inserito correttamente!")
-                        # Esempio: ricarica i venditori
+                    # Gestisci il caricamento del CV
+                    cv_path = None
+                    if cv_file is not None:
+                        cv_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cv_files')
+                        os.makedirs(cv_dir, exist_ok=True)
+                        cv_path = os.path.join(cv_dir, cv_file.name)
+                        try:
+                            with open(cv_path, "wb") as f:
+                                f.write(cv_file.getbuffer())
+                            st.success(f"CV salvato in: `{cv_path}`")
+                        except Exception as e:
+                            st.error(f"Errore nel salvataggio del CV: {e}")
+                            cv_path = None
+                    
+                    venditore = (
+                        nome_cognome, 
+                        email, 
+                        telefono, 
+                        citta, 
+                        esperienza_vendita,
+                        anno_nascita, 
+                        settore_esperienza, 
+                        partita_iva, 
+                        agente_isenarco,
+                        cv_path,  # Campo 'cv'
+                        note.strip()  # Campo 'note'
+                    )
+                    successo = add_venditore(connection, venditore)
+                    if successo:
+                        st.success("Venditore aggiunto con successo!")
+                        # Aggiorna lo stato dei venditori
                         st.session_state.venditori_data = search_venditori(connection)
                     else:
-                        error_msg = r.json().get('detail', 'Errore sconosciuto')
-                        st.error(f"Errore: {error_msg}")
-                except Exception as e:
-                    st.error(f"Errore di connessione: {e}")
-            else:
-                st.error("Compila i campi obbligatori (Nome, Email, Città, Settore).")
+                        st.error("Si è verificato un errore durante l'inserimento del venditore.")
+                else:
+                    st.error("🔴 Nome, Email, Città e Settore sono obbligatori.")
 
-    ############################################################################
-    # ======================  SCHEDA 2: CERCA VENDITORI  =======================
-    ############################################################################
+    # Scheda 2: Cerca Venditori
     elif st.session_state.active_tab == "Cerca Venditori":
         st.header("🔍 Cerca Venditori")
         with st.form("form_cerca_venditori"):
+            # Miglioramento del layout del form usando colonne
             col1, col2, col3 = st.columns(3)
+            
             with col1:
-                nome_cerca = st.text_input("Nome e Cognome")
+                nome_cerca = st.text_input("Nome e Cognome", placeholder="Inserisci il nome da cercare")
                 partita_iva_cerca = st.selectbox("Partita IVA", ["Tutti", "Sì", "No"])
+            
             with col2:
-                db_cities = get_available_cities(connection)
-                citta_cerca = st.selectbox("Città", ["Tutte"] + db_cities)
-                agente_isenarco_cerca = st.selectbox("Agente Iscritto Enasarco", ["Tutti", "Sì", "No"])
+                available_cities = get_available_cities(connection)
+                citta_cerca = st.selectbox("Città", ["Tutte"] + available_cities)
+                agente_isenarco_cerca = st.selectbox(
+                    "Agente Iscritto Enasarco", 
+                    options=["Tutti", "Sì", "No"]
+                )
+            
             with col3:
-                settori_db = get_settori(connection)
-                if settori_db:
-                    settore_cerca = st.selectbox("Settore di Esperienza", ["Tutti"] + settori_db)
+                settori = get_settori(connection)
+                if settori:
+                    settore_cerca = st.selectbox("Settore di Esperienza", ["Tutti"] + settori)
                 else:
                     settore_cerca = st.selectbox("Settore di Esperienza", ["Carica prima i settori"])
-
+            
             cerca_button = st.form_submit_button("Cerca")
-
+        
         if cerca_button:
+            # Mappatura dei valori "Tutti" a None
             nome_param = nome_cerca if nome_cerca else None
             citta_param = citta_cerca if citta_cerca != "Tutte" else None
             settore_param = settore_cerca if settore_cerca != "Tutti" else None
@@ -288,59 +319,88 @@ def main():
             agente_isenarco_param = agente_isenarco_cerca if agente_isenarco_cerca != "Tutti" else None
 
             records = search_venditori(
-                connection,
-                nome=nome_param,
-                citta=citta_param,
-                settore=settore_param,
+                connection, 
+                nome=nome_param, 
+                citta=citta_param, 
+                settore=settore_param, 
                 partita_iva=partita_iva_param,
                 agente_isenarco=agente_isenarco_param
             )
-            st.session_state.venditori_data = records
-            st.session_state.display_count = 10
+            st.session_state.venditori_data = records  # Aggiorna lo stato con i risultati della ricerca
+            st.session_state.display_count = 10  # Reset della visualizzazione
+
         else:
             if 'venditori_data' not in st.session_state:
-                st.session_state.venditori_data = []
+                st.session_state.venditori_data = []  # Reset dei dati se non si è cliccato "Cerca"
 
         st.markdown("---")
 
+        # Visualizza i venditori solo se ci sono risultati
         if st.session_state.venditori_data:
             st.subheader(f"Risultati della Ricerca: {len(st.session_state.venditori_data)} Venditori Trovati")
+            
+            # Mostra solo i primi 'display_count' venditori
             venditori_display = st.session_state.venditori_data[:st.session_state.display_count]
+
             for record in venditori_display:
-                with st.expander(f"📌 {record['nome_cognome']}"):
+                with st.expander(f"📌 {record[1]}"):
                     col1, col2 = st.columns(2)
+                    
                     with col1:
-                        st.write(f"**Email:** {record['email']}")
-                        st.write(f"**Telefono:** {record['telefono']}")
-                        st.write(f"**Città:** {record['citta']}")
-                        st.write(f"**Esperienza Vendita:** {record['esperienza_vendita']} anni")
+                        st.markdown(f"**Email:** {record[2]}")
+                        st.markdown(f"**Telefono:** {record[3]}")
+                        st.markdown(f"**Città:** {record[4]}")
+                        st.markdown(f"**Esperienza Vendita:** {record[5]} anni")
+                    
                     with col2:
-                        st.write(f"**Settore:** {record['settore_esperienza']}")
-                        st.write(f"**Partita IVA:** {record['partita_iva']}")
-                        st.write(f"**Agente Iscritto Enasarco:** {record['agente_isenarco']}")
-                        st.write(f"**Note:** {record['note']}")
-                    st.write(f"**Data Creazione:** {record['data_creazione']}")
-
-                    # Azioni
-                    ac1, ac2 = st.columns([1, 1])
-                    with ac1:
-                        if record['cv']:
-                            st.warning("CV presente (path/URL): gestione su hosting esterno.")
+                        st.markdown(f"**Settore:** {record[7]}")
+                        st.markdown(f"**Partita IVA:** {record[8]}")
+                        st.markdown(f"**Agente Iscritto Enasarco:** {record[9]}")
+                        st.markdown(f"**Note:** {record[11]}")
+                    
+                    st.markdown(f"**Data Creazione:** {record[12].strftime('%Y-%m-%d %H:%M:%S')}")
+                    
+                    # Pulsanti di azione organizzati in due colonne
+                    action_col1, action_col2 = st.columns([1, 1])
+                    
+                    with action_col1:
+                        # Pulsante di download CV
+                        if record[10]:  # 'cv' è il campo all'indice 10
+                            if os.path.exists(record[10]):
+                                try:
+                                    with open(record[10], "rb") as f:
+                                        cv_bytes = f.read()
+                                    st.download_button(
+                                        label="📄 Scarica CV",
+                                        data=cv_bytes,
+                                        file_name=os.path.basename(record[10]),
+                                        mime="application/pdf",
+                                        key=f"download_{record[0]}"
+                                    )
+                                except Exception as e:
+                                    st.error(f"Errore nel leggere il CV: {e}")
+                            else:
+                                st.warning("**CV:** File non trovato.")
                         else:
-                            st.info("CV: N/A")
-                    with ac2:
-                        delete_button = st.button("🗑️ Elimina", key=f"delete_{record['id']}")
+                            st.info("**CV:** N/A")
+                    
+                    with action_col2:
+                        # Pulsante di eliminazione posizionato a destra
+                        delete_button = st.button("🗑️ Elimina", key=f"delete_{record[0]}")
                         if delete_button:
-                            handle_delete(record["id"])
+                            handle_delete(record[0])
 
+            # Pulsante "Carica Altro" per lo scroll infinito
             if st.session_state.display_count < len(st.session_state.venditori_data):
                 if st.button("Carica Altro", key="load_more"):
-                    st.session_state.display_count += 10
+                    st.session_state.display_count += 10  # Incrementa di 10 venditori
             else:
                 st.info("Hai visualizzato tutti i venditori.")
+
         else:
             st.info("Nessun venditore trovato.")
 
+        # Conferma per l'eliminazione
         if st.session_state.delete_confirm_id is not None:
             venditore_id = st.session_state.delete_confirm_id
             st.warning("Sei sicuro di voler eliminare questo venditore?", icon="⚠️")
@@ -352,229 +412,314 @@ def main():
                 if st.button("Annulla Eliminazione", key="cancel_delete"):
                     st.session_state.delete_confirm_id = None
 
-    ############################################################################
-    # ====================  SCHEDA 3: DASHBOARD  ===============================
-    ############################################################################
+    # Scheda 3: Dashboard
     elif st.session_state.active_tab == "Dashboard":
         st.header("📊 Dashboard")
         st.markdown("---")
 
+        # Organizza i grafici in colonne per una migliore disposizione
         col1, col2 = st.columns(2)
+
         with col1:
-            # Numero totale venditori
+            # 1. Numero Totale di Venditori
             try:
                 cursor = connection.cursor()
-                query_totale = "SELECT COUNT(*) FROM venditori"
+                query_totale = "SELECT COUNT(*) as totale FROM venditori"
                 cursor.execute(query_totale)
-                result = cursor.fetchone()
-                totale_venditori = result[0] if result else 0
+                df_totale = cursor.fetchone()
+                totale_venditori = df_totale[0] if df_totale else 0
                 st.subheader(f"Numero Totale di Venditori: **{totale_venditori}**")
                 cursor.close()
             except Exception as e:
-                st.error(f"Errore nel calcolo del numero venditori: {e}")
+                st.error(f"Errore nel calcolare il numero totale di venditori. Dettaglio: {e}")
 
         with col2:
-            # Numero di venditori per settore
+            # 2. Numero di Venditori per Settore
             try:
                 cursor = connection.cursor()
-                query_settori = """
-                    SELECT settore_esperienza, COUNT(*) as totale
-                    FROM venditori
-                    GROUP BY settore_esperienza
-                """
+                query_settori = "SELECT settore_esperienza, COUNT(*) as totale FROM venditori GROUP BY settore_esperienza"
                 cursor.execute(query_settori)
-                settori_data = cursor.fetchall()
-                df_settori = pd.DataFrame(settori_data, columns=['settore_esperienza', 'totale'])
-                fig_settori = px.bar(
-                    df_settori,
-                    x='settore_esperienza',
-                    y='totale',
-                    title="Numero di Venditori per Settore",
-                    labels={'settore_esperienza': 'Settore', 'totale': 'Totale'},
-                    color='settore_esperienza',
-                    template='plotly_white'
-                )
+                records_settori = cursor.fetchall()
+                df_settori = pd.DataFrame(records_settori, columns=['settore_esperienza', 'totale'])
+                fig_settori = px.bar(df_settori, x='settore_esperienza', y='totale',
+                                     title="Numero di Venditori per Settore",
+                                     labels={'settore_esperienza': 'Settore', 'totale': 'Totale Venditori'},
+                                     color='settore_esperienza', template='plotly_white')  # Cambiato template
                 st.plotly_chart(fig_settori, use_container_width=True)
                 cursor.close()
             except Exception as e:
-                st.error(f"Errore dashboard settori: {e}")
+                st.error(f"Errore nel generare il report: Numero di Venditori per Settore. Dettaglio: {e}")
 
         st.markdown("---")
-        c1, c2 = st.columns(2)
-        with c1:
-            # Distribuzione esperienze
+
+        # Organizza altri grafici in colonne
+        col3, col4 = st.columns(2)
+
+        with col3:
+            # 3. Distribuzione delle Esperienze nella Vendita
             try:
                 cursor = connection.cursor()
-                query_esperienza = """
-                    SELECT esperienza_vendita, COUNT(*) as totale
-                    FROM venditori
-                    GROUP BY esperienza_vendita
-                    ORDER BY esperienza_vendita
-                """
+                query_esperienza = "SELECT esperienza_vendita, COUNT(*) as totale FROM venditori GROUP BY esperienza_vendita ORDER BY esperienza_vendita"
                 cursor.execute(query_esperienza)
-                esp_data = cursor.fetchall()
-                df_esp = pd.DataFrame(esp_data, columns=['esperienza_vendita', 'totale'])
-                fig_esp = px.histogram(
-                    df_esp,
-                    x='esperienza_vendita',
-                    y='totale',
-                    title="Distribuzione Esperienze di Vendita",
-                    nbins=20,
-                    template='plotly_white'
-                )
-                st.plotly_chart(fig_esp, use_container_width=True)
+                records_esperienza = cursor.fetchall()
+                df_esperienza = pd.DataFrame(records_esperienza, columns=['esperienza_vendita', 'totale'])
+                fig_esperienza = px.histogram(df_esperienza, x='esperienza_vendita', y='totale',
+                                             title="Distribuzione delle Esperienze nella Vendita",
+                                             labels={'esperienza_vendita': 'Esperienza (anni)', 'totale': 'Totale Venditori'},
+                                             nbins=20, template='plotly_white')  # Cambiato template
+                st.plotly_chart(fig_esperienza, use_container_width=True)
                 cursor.close()
             except Exception as e:
-                st.error(f"Errore dashboard esperienza: {e}")
+                st.error(f"Errore nel generare il report: Distribuzione delle Esperienze nella Vendita. Dettaglio: {e}")
 
-        with c2:
-            # Città con più venditori
+        with col4:
+            # 4. Città con più Venditori
             try:
                 cursor = connection.cursor()
-                query_citta = """
-                    SELECT citta, COUNT(*) as totale
-                    FROM venditori
-                    GROUP BY citta
-                    ORDER BY totale DESC
-                    LIMIT 10
-                """
+                query_citta = "SELECT citta, COUNT(*) as totale FROM venditori GROUP BY citta ORDER BY totale DESC LIMIT 10"
                 cursor.execute(query_citta)
-                citta_data = cursor.fetchall()
-                df_citta = pd.DataFrame(citta_data, columns=['citta', 'totale'])
-                fig_citta = px.pie(
-                    df_citta,
-                    names='citta',
-                    values='totale',
-                    title="Città con più Venditori",
-                    hole=0.3,
-                    template='plotly_white'
-                )
+                records_citta = cursor.fetchall()
+                df_citta = pd.DataFrame(records_citta, columns=['citta', 'totale'])
+                fig_citta = px.pie(df_citta, names='citta', values='totale',
+                                   title="Città con più Venditori",
+                                   hole=0.3, template='plotly_white')  # Cambiato template
                 st.plotly_chart(fig_citta, use_container_width=True)
                 cursor.close()
             except Exception as e:
-                st.error(f"Errore dashboard citta: {e}")
+                st.error(f"Errore nel generare il report: Città con più Venditori. Dettaglio: {e}")
 
-    ############################################################################
-    # ================= SCHEDA 4: GESTISCI SETTORI E PROFILI ===================
-    ############################################################################
+        # Aggiungi ulteriori grafici o sezioni se necessario
+
+    # Scheda 4: Gestisci Settori e Profili Venditori
     elif st.session_state.active_tab == "Gestisci Settori e Profili Venditori":
         st.header("🔧 Gestisci Settori e Profili Venditori")
         st.markdown("---")
 
-        # Aggiungi Settore
+        # Sezione per aggiungere un nuovo settore
         st.subheader("➕ Aggiungi Nuovo Settore")
         with st.form("form_aggiungi_settore"):
             nuovo_settore = st.text_input("Nome del nuovo settore", placeholder="Inserisci il nome del settore")
-            aggiungi_settore_btn = st.form_submit_button("Aggiungi Settore")
-        if aggiungi_settore_btn:
-            if nuovo_settore.strip():
-                # Esempio di aggiunta diretta su DB. Oppure richiesta a FastAPI
-                from db_connection import add_settore
-                res = add_settore(connection, nuovo_settore.strip())
-                if res:
-                    st.success(f"Settore '{nuovo_settore}' aggiunto con successo!")
+            aggiungi_settore = st.form_submit_button("Aggiungi Settore")
+            if aggiungi_settore:
+                if nuovo_settore.strip():
+                    successo = add_settore(connection, nuovo_settore.strip())
+                    if successo:
+                        st.success(f"Settore **'{nuovo_settore}'** aggiunto con successo!")
+                        # Aggiorna manualmente le informazioni
+                        settori = get_settori(connection)
+                    else:
+                        st.warning(f"Il settore **'{nuovo_settore}'** esiste già.")
                 else:
-                    st.warning(f"Settore '{nuovo_settore}' esiste già o errore.")
-            else:
-                st.error("Il campo settore non può essere vuoto.")
+                    st.error("🔴 Il campo del settore non può essere vuoto.")
 
         st.markdown("---")
 
-        # Ricerca Venditore -> Aggiornamento Profili
+        # Sezione per modificare il profilo di un venditore
         st.subheader("🔄 Modifica Profilo Venditore")
+
+        # Inizializza lo stato se non esiste
         if 'venditore_selezionato_tab4' not in st.session_state:
             st.session_state.venditore_selezionato_tab4 = None
 
         with st.form("form_cerca_venditore_tab4"):
             st.markdown("### 🔎 Ricerca Venditore")
-            nome_cerca_mod = st.text_input("Nome e Cognome", placeholder="Inserisci il nome da cercare")
-            citta_cerca_mod = st.text_input("Città", placeholder="Inserisci la città da cercare")
-            cerca_btn_mod = st.form_submit_button("Cerca Venditore")
-        if cerca_btn_mod:
-            nome_param = nome_cerca_mod if nome_cerca_mod else None
-            citta_param = citta_cerca_mod if citta_cerca_mod else None
+            nome_cerca_modifica = st.text_input("Nome e Cognome", placeholder="Inserisci il nome da cercare")
+            citta_cerca_modifica = st.selectbox("Città", ["Tutte"] + all_cities)
+            cerca_button_modifica = st.form_submit_button("Cerca Venditore")
+        
+        if cerca_button_modifica:
+            # Mappatura dei valori "Tutte" a None
+            nome_param = nome_cerca_modifica if nome_cerca_modifica else None
+            citta_param = citta_cerca_modifica if citta_cerca_modifica != "Tutte" else None
 
-            found_venditori = search_venditori(
-                connection,
-                nome=nome_param,
-                citta=citta_param,
-                settore=None,
+            records_modifica = search_venditori(
+                connection, 
+                nome=nome_param, 
+                citta=citta_param, 
+                settore=None,  
                 partita_iva=None,
                 agente_isenarco=None
             )
-            if found_venditori:
-                venditori_list = {f"{v['nome_cognome']} (ID: {v['id']})": v for v in found_venditori}
-                vend_selez = st.selectbox("Seleziona Venditore da Modificare", list(venditori_list.keys()))
-                if vend_selez:
-                    st.session_state.venditore_selezionato_tab4 = venditori_list[vend_selez]
-                    st.success(f"Venditore selezionato: {vend_selez}")
+            if records_modifica:
+                # Creiamo una lista di venditori da selezionare
+                venditori_list = {f"{record[1]} (ID: {record[0]})": record for record in records_modifica}
+                venditore_selezionato = st.selectbox("Seleziona il Venditore da Modificare", list(venditori_list.keys()))
+                
+                if venditore_selezionato:
+                    venditore_record = venditori_list[venditore_selezionato]
+                    st.session_state.venditore_selezionato_tab4 = venditore_record
+                    st.success(f"Venditore selezionato: **{venditore_selezionato}**")
             else:
-                st.info("Nessun venditore trovato.")
+                st.info("Nessun venditore trovato con i criteri di ricerca inseriti.")
 
+        # Mostra il form per aggiornare tutti i campi solo se un venditore è selezionato
         if st.session_state.venditore_selezionato_tab4:
-            venditore_sel = st.session_state.venditore_selezionato_tab4
+            venditore = st.session_state.venditore_selezionato_tab4
             st.markdown("---")
             st.subheader("📝 Aggiorna Profilo Venditore")
 
-            # Visualizza CV se presente
-            if venditore_sel["cv"]:
-                st.info(f"CV path/URL: {venditore_sel['cv']}")
+            # **Correzione Indice per CV**
+            if venditore[10] and os.path.exists(venditore[10]):
+                try:
+                    with open(venditore[10], "rb") as f:
+                        cv_bytes = f.read()
+                    st.download_button(
+                        label="📄 Scarica CV Esistente",
+                        data=cv_bytes,
+                        file_name=os.path.basename(venditore[10]),
+                        mime="application/pdf",
+                        key=f"download_existing_{venditore[0]}"
+                    )
+                except Exception as e:
+                    st.error(f"Errore nel leggere il CV: {e}")
             else:
-                st.info("Nessun CV associato.")
+                st.info("**CV Esistente:** N/A")
 
-            with st.form("form_aggiorna_venditore_tab4"):
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    nome_mod = st.text_input("Nome e Cognome", venditore_sel["nome_cognome"])
-                    email_mod = st.text_input("Email", venditore_sel["email"])
-                    tel_mod = st.text_input("Telefono", venditore_sel["telefono"])
-                with c2:
-                    citta_mod = st.text_input("Città", venditore_sel["citta"])
-                    esp_mod = st.select_slider("Esperienza (anni)", options=list(range(0,101)), value=venditore_sel["esperienza_vendita"])
-                    anno_nasc_mod = st.selectbox("Anno di Nascita", list(range(1900, 2025)), index=anno_nascita_index(venditore_sel["anno_nascita"]))
-                with c3:
-                    settori_db = get_settori(connection)
-                    if settori_db:
-                        if venditore_sel["settore_esperienza"] in settori_db:
-                            idx_settore = settori_db.index(venditore_sel["settore_esperienza"])
+            with st.form("form_aggiorna_profilo_tab4"):
+                st.markdown("### 👤 Informazioni Venditore")
+                # Miglioramento del layout del form usando colonne
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    nome_cognome_mod = st.text_input("Nome e Cognome", value=venditore[1], key="nome_cognome_mod")
+                    email_mod = st.text_input("Email", value=venditore[2], key="email_mod")
+                    telefono_mod = st.text_input("Telefono", value=venditore[3], key="telefono_mod")
+                
+                with col2:
+                    if all_cities:
+                        if venditore[4] in all_cities:
+                            index_citta = all_cities.index(venditore[4])
                         else:
-                            idx_settore = 0
-                        settore_mod = st.selectbox("Settore di Esperienza", settori_db, index=idx_settore)
+                            index_citta = 0
+                        citta_mod = st.selectbox("Città", all_cities, index=index_citta, key="citta_mod")
                     else:
-                        settore_mod = st.selectbox("Settore di Esperienza", ["Carica prima i settori"])
-                    piva_mod = st.selectbox("Partita IVA", ["Sì", "No"], 0 if venditore_sel["partita_iva"]=="Sì" else 1)
-                    agente_mod = st.selectbox("Enasarco", ["Sì", "No"], 0 if venditore_sel["agente_isenarco"]=="Sì" else 1)
-
+                        citta_mod = st.selectbox("Città", ["Carica prima il CSV"], key="citta_mod")
+                    esperienza_vendita_mod = st.select_slider(
+                        "Esperienza nella vendita (anni)", 
+                        options=list(range(0, 101)), 
+                        value=venditore[5],
+                        key="esperienza_vendita_mod"
+                    )
+                    anno_nascita_mod = st.selectbox(
+                        "Anno di Nascita", 
+                        options=list(range(1900, 2025)),
+                        index=anno_nascita_index(venditore[6]),
+                        key="anno_nascita_mod"
+                    )
+                
+                with col3:
+                    settori = get_settori(connection)
+                    if settori:
+                        if venditore[7] in settori:
+                            index_settore = settori.index(venditore[7])
+                        else:
+                            index_settore = 0
+                        settore_esperienza_mod = st.selectbox(
+                            "Settore di Esperienza", 
+                            settori,
+                            index=index_settore,
+                            key="settore_esperienza_mod"
+                        )
+                    else:
+                        settore_esperienza_mod = st.selectbox(
+                            "Settore di Esperienza", 
+                            ["Carica prima i settori"],
+                            key="settore_esperienza_mod"
+                        )
+                    partita_iva_mod = st.selectbox(
+                        "Partita IVA", 
+                        options=["Sì", "No"],
+                        index=0 if venditore[8] == "Sì" else 1,
+                        key="partita_iva_mod"
+                    )
+                    agente_isenarco_mod = st.selectbox(
+                        "Agente Iscritto Enasarco", 
+                        options=["Sì", "No"],
+                        index=0 if venditore[9] == "Sì" else 1,
+                        key="agente_isenarco_mod"
+                    )
+                
                 st.markdown("---")
-                c4, c5 = st.columns([2,3])
-                with c4:
-                    cv_upload_mod = st.file_uploader("Carica nuovo CV", type=["pdf"])
-                with c5:
-                    note_mod = st.text_area("Note", venditore_sel["note"] if venditore_sel["note"] else "")
+                # Rimuovi il titolo per ottimizzare lo spazio
+                # st.markdown("### 📄 Aggiorna CV e 📝 Note")
+                col4, col5 = st.columns([2, 3])
+                with col4:
+                    cv_file_mod = st.file_uploader("Carica il nuovo CV (PDF)", type=['pdf'], key="cv_file_mod_tab4")
+                with col5:
+                    note_mod = st.text_area("Aggiungi o modifica le note sul profilo del venditore", value=venditore[11] if venditore[11] else "", key="note_mod_tab4")
+                
+                aggiorna_button = st.form_submit_button("Aggiorna Profilo")
+                
+                if aggiorna_button:
+                    cv_path_mod = venditore[10]  # Mantieni il CV esistente se non viene caricato un nuovo file
+                    if cv_file_mod is not None:
+                        # Salva il file nella cartella 'cv_files' (crea la cartella se non esiste)
+                        cv_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cv_files')
+                        os.makedirs(cv_dir, exist_ok=True)
+                        cv_path_mod = os.path.join(cv_dir, cv_file_mod.name)
+                        try:
+                            with open(cv_path_mod, "wb") as f:
+                                f.write(cv_file_mod.getbuffer())
+                            st.success(f"CV salvato in: `{cv_path_mod}`")  # Messaggio di conferma
+                        except Exception as e:
+                            st.error(f"Errore nel salvataggio del CV: {e}")
+                    
+                    # Aggiorna tutti i campi
+                    successo, messaggio = update_venditore(
+                        connection, 
+                        venditore_id=venditore[0],
+                        nome_cognome=nome_cognome_mod,
+                        email=email_mod,
+                        telefono=telefono_mod,
+                        citta=citta_mod,
+                        esperienza_vendita=esperienza_vendita_mod,
+                        anno_nascita=anno_nascita_mod,
+                        settore_esperienza=settore_esperienza_mod,
+                        partita_iva=partita_iva_mod,
+                        agente_isenarco=agente_isenarco_mod,
+                        cv_path=cv_path_mod,
+                        note=note_mod.strip()
+                    )
+                    
+                    if successo:
+                        st.success(messaggio)
+                        note_aggiornate = verifica_note(connection, venditore[0])
+                        st.info(f"Note aggiornate: {note_aggiornate}")
+                        # Aggiorna lo stato dei venditori
+                        st.session_state.venditori_data = search_venditori(connection)
+                        # Aggiorna i dati del venditore selezionato con i dati più recenti
+                        updated_records = search_venditori(
+                            connection, 
+                            nome=nome_cognome_mod, 
+                            citta=citta_mod, 
+                            settore=settore_esperienza_mod, 
+                            partita_iva=partita_iva_mod,
+                            agente_isenarco=agente_isenarco_mod
+                        )
+                        # Trova il venditore aggiornato
+                        if updated_records:
+                            st.session_state.venditore_selezionato_tab4 = updated_records[0]
+                        else:
+                            st.session_state.venditore_selezionato_tab4 = None
+                    else:
+                        st.error(messaggio)
 
-                aggiorna_btn = st.form_submit_button("Aggiorna Profilo")
-
-            if aggiorna_btn:
-                # Se vuoi aggiornare via FastAPI, puoi fare come "Inserisci venditore"
-                # Se vuoi farlo localmente con un update_venditore, devi importarlo
-                st.warning("Aggiornamento venditore localmente non implementato in questo snippet!")
-                # A te la scelta di implementare la logica come preferisci (REST o local).
-
-
-    ############################################################################
-    # =====================  SCHEDA 5: BACKUP E RIPRISTINO  ====================
-    ############################################################################
+    # Scheda 5: Backup e Ripristino
     elif st.session_state.active_tab == "Backup e Ripristino":
         st.header("🔒 Backup e Ripristino del Database")
         st.markdown("---")
 
+        # Sezione Backup Manuale
         st.markdown("### 📦 Esegui Backup Manuale del Database")
         if st.button("Crea Backup Manuale"):
             with st.spinner("Eseguendo il backup..."):
-                successo, risultato = backup_database_python(connection)
+                successo, risultato = backup_database_python(connection)  # Utilizza la nuova funzione
                 if successo:
+                    # Crea un nome file con data e ora
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     backup_filename = f"backup_manual_{timestamp}.zip"
+
+                    # Prepara il download del backup
                     st.success("Backup creato con successo!")
                     st.download_button(
                         label="📥 Scarica Backup",
@@ -582,94 +727,140 @@ def main():
                         file_name=backup_filename,
                         mime="application/zip"
                     )
+                    
+                    # Aggiorna l'ultimo backup
+                    current_time = datetime.now()
+                    with open('last_backup.txt', 'w') as f:
+                        f.write(current_time.strftime("%Y-%m-%d %H:%M:%S"))
                 else:
                     st.error(f"Errore durante il backup: {risultato}")
 
         st.markdown("---")
+
+        # Sezione Ripristino del Database
         st.markdown("### 🔄 Ripristina il Database da un Backup")
         with st.form("form_ripristino"):
-            backup_file = st.file_uploader("Carica il file di backup ZIP", type=["zip"])
+            backup_file = st.file_uploader("Carica il file di backup ZIP contenente i CSV delle tabelle", type=["zip"])
             ripristina_button = st.form_submit_button("Ripristina Database")
-        if ripristina_button:
-            if backup_file:
-                try:
-                    backup_zip_bytes = backup_file.read()
-                    with st.spinner("Ripristinando il database..."):
-                        successo, messaggio = restore_database_python(connection, backup_zip_bytes)
-                        if successo:
-                            st.success(messaggio)
-                        else:
-                            st.error(messaggio)
-                except Exception as e:
-                    st.error(f"Errore durante il ripristino: {e}")
-            else:
-                st.error("Devi caricare un file ZIP valido.")
 
-    ############################################################################
-    # =============  SCHEDA 6: ESPORTA/IMPORTA VENDITORI  ======================
-    ############################################################################
+            if ripristina_button:
+                if backup_file is not None:
+                    try:
+                        backup_zip_bytes = backup_file.read()
+                        with st.spinner("Ripristinando il database..."):
+                            successo, messaggio = restore_database_python(connection, backup_zip_bytes)  # Utilizza la nuova funzione
+                            if successo:
+                                st.success(messaggio)
+                                # Aggiorna l'ultimo backup
+                                current_time = datetime.now()
+                                with open('last_backup.txt', 'w') as f:
+                                    f.write(current_time.strftime("%Y-%m-%d %H:%M:%S"))
+                            else:
+                                st.error(messaggio)
+                    except Exception as e:
+                        st.error(f"Errore durante il ripristino: {e}")
+                else:
+                    st.error("🔴 Devi caricare un file di backup valido.")
+
+    # Scheda 6: Esporta/Importa Venditori
     elif st.session_state.active_tab == "Esporta/Importa Venditori":
         st.header("📤 Esporta e 📥 Importa Venditori")
         st.markdown("---")
 
+        # Sezione Esportazione
         st.subheader("➜ Esporta Venditori")
-        formato_export = st.selectbox("Seleziona il formato di esportazione", ["CSV", "Excel"])
+
+        # Opzioni di esportazione
+        formato_export = st.selectbox(
+            "Seleziona il formato di esportazione",
+            ["CSV", "Excel"],
+            key="formato_export"
+        )
+
+        # Pulsante per esportare tutti i venditori
         if st.button("Esporta Tutti i Venditori"):
             with st.spinner("Eseguendo l'esportazione..."):
-                records = search_venditori(connection)  # Ottieni tutti
+                records = search_venditori(connection)
                 if records:
-                    df_export = pd.DataFrame(records)
+                    # Converti i record in DataFrame
+                    df_export = pd.DataFrame(records, columns=[
+                        'id', 'nome_cognome', 'email', 'telefono', 'citta',
+                        'esperienza_vendita', 'anno_nascita', 'settore_esperienza',
+                        'partita_iva', 'agente_isenarco', 'cv', 'note', 'data_creazione'
+                    ])
+                    
                     if formato_export == "CSV":
-                        csv_data = df_export.to_csv(index=False, sep=';').encode('utf-8')
+                        # Usa sep=';' per allineare il delimitatore
+                        csv = df_export.to_csv(index=False, sep=';').encode('utf-8')
                         st.download_button(
                             label="📥 Scarica CSV",
-                            data=csv_data,
-                            file_name="venditori_export.csv",
-                            mime="text/csv"
+                            data=csv,
+                            file_name='venditori_export.csv',
+                            mime='text/csv'
                         )
-                    else:  # Excel
+                    elif formato_export == "Excel":
+                        # Converti in bytes utilizzando BytesIO
                         buffer = BytesIO()
                         df_export.to_excel(buffer, index=False, engine='openpyxl')
                         buffer.seek(0)
                         st.download_button(
                             label="📥 Scarica Excel",
                             data=buffer,
-                            file_name="venditori_export.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            file_name='venditori_export.xlsx',
+                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                         )
                     st.success("Esportazione completata con successo!")
                 else:
                     st.info("Nessun venditore da esportare.")
 
         st.markdown("---")
-        st.subheader("⬅️ Importa Venditori (Backup ZIP con CSV)")
-        import_file = st.file_uploader("Carica file ZIP contenente CSV", type=["zip"])
-        if import_file:
+
+        # Sezione Importazione
+        st.subheader("⬅️ Importa Venditori")
+
+        # Caricamento del file
+        formato_import = st.selectbox(
+            "Seleziona il formato di importazione",
+            ["CSV", "Excel"],
+            key="formato_import"
+        )
+        import_file = st.file_uploader("Carica il file ZIP contenente i CSV delle tabelle", type=["zip"])
+
+        if import_file is not None:
             try:
                 backup_zip = zipfile.ZipFile(BytesIO(import_file.read()), 'r')
-                table_files = [file for file in backup_zip.namelist() if file.endswith(".csv")]
+                table_files = [file for file in backup_zip.namelist() if file.endswith('.csv')]
+
                 if not table_files:
-                    st.error("Il file ZIP non contiene CSV validi.")
+                    st.error("Il file ZIP non contiene file CSV validi.")
                 else:
-                    st.write(f"Trovati {len(table_files)} file CSV nel ZIP.")
-                    # Anteprima
-                    for file in table_files[:1]:
+                    st.write(f"Totale tabelle da importare: {len(table_files)}")
+                    
+                    # Mostra una preview dei dati
+                    for file in table_files[:1]:  # Mostra solo la preview della prima tabella
                         with backup_zip.open(file) as f:
                             df_preview = pd.read_csv(f)
-                            st.write(f"Anteprima del file `{file}`:")
+                            st.write(f"Preview del file `{file}`:")
                             st.dataframe(df_preview.head())
+
                     if st.button("Importa Database"):
-                        with st.spinner("Importando..."):
-                            backup_zip_bytes = import_file.read()
-                            successo, messaggio = restore_database_python(connection, backup_zip_bytes)
-                            if successo:
-                                st.success(messaggio)
-                            else:
-                                st.error(messaggio)
+                        with st.spinner("Importando il database..."):
+                            try:
+                                # Leggi tutti i CSV dal ZIP
+                                backup_zip_bytes = import_file.read()
+                                successo, messaggio = restore_database_python(connection, backup_zip_bytes)
+                                if successo:
+                                    st.success(messaggio)
+                                    # Aggiorna i dati visualizzati
+                                    st.session_state.venditori_data = search_venditori(connection)
+                                else:
+                                    st.error(messaggio)
+                            except Exception as e:
+                                st.error(f"Errore durante l'importazione: {e}")
             except zipfile.BadZipFile:
-                st.error("Il file caricato non è un ZIP valido.")
+                st.error("Il file caricato non è un file ZIP valido.")
             except Exception as e:
-                st.error(f"Errore nel leggere il file ZIP: {e}")
+                st.error(f"Errore durante la lettura del file ZIP: {e}")
 
 if __name__ == "__main__":
     main()
