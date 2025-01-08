@@ -4,13 +4,13 @@ import streamlit as st
 import requests  # Import di requests per inviare richieste HTTP
 from db_connection import (
     create_connection, 
-    add_settore, 
+    search_venditori, 
     get_settori, 
     get_available_cities,  
     initialize_settori,
     backup_database_python,  # Import della nuova funzione di backup
     restore_database_python, # Import della nuova funzione di ripristino
-    get_existing_emails
+    delete_venditore
 )
 import pandas as pd
 import os
@@ -242,11 +242,10 @@ def main():
                     citta != "Carica prima il CSV" and 
                     settore_esperienza != "Carica prima i settori"):
                     # Gestisci il caricamento del CV
-                    cv_url = None  # Inizializza come None
+                    cv_url = ""  # Inizializza come stringa vuota
                     if cv_file is not None:
                         # Per gestire i file CV, è necessario caricarli su un server accessibile
-                        # Poiché FastAPI non gestisce l'upload dei file, potresti considerare l'uso di uno storage come AWS S3, Google Cloud Storage, ecc.
-                        # Per semplicità, in questa implementazione, non carichiamo il file e impostiamo cv_url come N/A
+                        # Per semplicità, in questa implementazione, non carichiamo il file e impostiamo cv_url come stringa vuota
                         st.warning("Caricare i CV richiede un'infrastruttura di storage separata. Il campo CV non verrà inviato.")
                     
                     # Prepara i dati da inviare al backend FastAPI
@@ -260,8 +259,8 @@ def main():
                         "settore_esperienza": settore_esperienza,
                         "partita_iva": partita_iva,
                         "agente_isenarco": agente_isenarco,
-                        "cv": cv_url,  # Può essere None o un URL se implementi lo storage
-                        "note": note.strip() if note else None
+                        "cv": cv_url if cv_url else "",  # Invia una stringa vuota se cv_url è None
+                        "note": note.strip() if note else ""  # Invia una stringa vuota se note è None
                     }
                     
                     # Leggi i segreti di Streamlit
@@ -287,7 +286,6 @@ def main():
                 else:
                     st.error("🔴 Nome, Email, Città e Settore sono obbligatori.")
 
-    # Le altre schede rimangono invariate
     # Scheda 2: Cerca Venditori
     elif st.session_state.active_tab == "Cerca Venditori":
         st.header("🔍 Cerca Venditori")
@@ -493,11 +491,10 @@ def main():
             aggiungi_settore = st.form_submit_button("Aggiungi Settore")
             if aggiungi_settore:
                 if nuovo_settore.strip():
-                    # Ora, inviamo una richiesta POST a FastAPI per aggiungere un nuovo settore
+                    # Invia una richiesta POST a FastAPI per aggiungere un nuovo settore
                     API_URL = st.secrets["API_URL"]
                     API_TOKEN = st.secrets["API_TOKEN"]
                     
-                    # Prepariamo i dati da inviare
                     settore_data = {
                         "settore": nuovo_settore.strip()
                     }
@@ -507,20 +504,18 @@ def main():
                         "Authorization": f"Bearer {API_TOKEN}"
                     }
                     
-                    # Supponiamo che FastAPI abbia un endpoint per aggiungere settori
-                    # Se non esiste, dovrai implementarlo nel tuo backend FastAPI
-                    # Qui assumiamo che `/aggiungi_settore` sia l'endpoint
-                    # Puoi modificare secondo le tue necessità
-
-                    # Per questo esempio, continueremo a utilizzare la funzione locale
-                    # ma sarebbe meglio delegare queste operazioni al backend
-                    successo = add_settore(connection, nuovo_settore.strip())
-                    if successo:
-                        st.success(f"Settore **'{nuovo_settore}'** aggiunto con successo!")
-                        # Aggiorna manualmente le informazioni
-                        settori = get_settori(connection)
-                    else:
-                        st.warning(f"Il settore **'{nuovo_settore}'** esiste già.")
+                    try:
+                        # Supponiamo che FastAPI abbia un endpoint `/aggiungi_settore`
+                        response = requests.post(f"{API_URL}/aggiungi_settore", json=settore_data, headers=headers)
+                        if response.status_code == 200:
+                            st.success(f"Settore **'{nuovo_settore}'** aggiunto con successo!")
+                            # Aggiorna manualmente le informazioni
+                            settori = get_settori(connection)
+                        else:
+                            error_detail = response.json().get('detail', 'Errore sconosciuto')
+                            st.error(f"Errore: {error_detail}")
+                    except requests.exceptions.RequestException as e:
+                        st.error(f"Errore di connessione: {e}")
                 else:
                     st.error("🔴 Il campo del settore non può essere vuoto.")
 
@@ -663,10 +658,10 @@ def main():
                 aggiorna_button = st.form_submit_button("Aggiorna Profilo")
                 
                 if aggiorna_button:
-                    cv_url_mod = None  # Implementa la logica per gestire il CV se necessario
+                    cv_url_mod = ""  # Inizializza come stringa vuota
                     if cv_file_mod is not None:
-                        # Caricare il CV su uno storage accessibile (es. AWS S3, Google Cloud Storage)
-                        # Qui, per semplicità, non carichiamo il file e impostiamo cv_url_mod come None
+                        # Per gestire i file CV, è necessario caricarli su un server accessibile
+                        # Per semplicità, in questa implementazione, non carichiamo il file e impostiamo cv_url_mod come stringa vuota
                         st.warning("Caricare i CV richiede un'infrastruttura di storage separata. Il campo CV non verrà aggiornato.")
                     
                     # Prepara i dati da inviare al backend FastAPI per aggiornare il venditore
@@ -681,8 +676,8 @@ def main():
                         "settore_esperienza": settore_esperienza_mod,
                         "partita_iva": partita_iva_mod,
                         "agente_isenarco": agente_isenarco_mod,
-                        "cv": cv_url_mod,  # Può essere None o un URL se implementi lo storage
-                        "note": note_mod.strip() if note_mod else None
+                        "cv": cv_url_mod if cv_url_mod else "",  # Invia una stringa vuota se cv_url_mod è None
+                        "note": note_mod.strip() if note_mod else ""  # Invia una stringa vuota se note_mod è None
                     }
                     
                     # Leggi i segreti di Streamlit
@@ -695,9 +690,7 @@ def main():
                     }
                     
                     try:
-                        # Supponiamo che il backend FastAPI supporti un endpoint per aggiornare i venditori, ad esempio `/aggiorna_venditore`
-                        # Se non esiste, dovrai implementarlo nel tuo backend FastAPI
-                        # Qui, per questo esempio, utilizzeremo lo stesso endpoint `/inserisci_venditore` per aggiornare
+                        # Supponiamo che il backend FastAPI supporti un endpoint per aggiornare i venditori, ad esempio `/inserisci_venditore`
                         # Poiché FastAPI ha `ON DUPLICATE KEY UPDATE`, può gestire sia inserimenti che aggiornamenti
                         response = requests.post(API_URL, json=data_update, headers=headers)
                         if response.status_code == 200:
@@ -723,63 +716,64 @@ def main():
                             st.error(f"Errore: {error_detail}")
                     except requests.exceptions.RequestException as e:
                         st.error(f"Errore di connessione: {e}")
-        # Scheda 5: Backup e Ripristino
-        elif st.session_state.active_tab == "Backup e Ripristino":
-            st.header("🔒 Backup e Ripristino del Database")
-            st.markdown("---")
 
-            # Sezione Backup Manuale
-            st.markdown("### 📦 Esegui Backup Manuale del Database")
-            if st.button("Crea Backup Manuale"):
-                with st.spinner("Eseguendo il backup..."):
-                    successo, risultato = backup_database_python(connection)  # Utilizza la nuova funzione
-                    if successo:
-                        # Crea un nome file con data e ora
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                        backup_filename = f"backup_manual_{timestamp}.zip"
+    # Scheda 5: Backup e Ripristino
+    elif st.session_state.active_tab == "Backup e Ripristino":
+        st.header("🔒 Backup e Ripristino del Database")
+        st.markdown("---")
 
-                        # Prepara il download del backup
-                        st.success("Backup creato con successo!")
-                        st.download_button(
-                            label="📥 Scarica Backup",
-                            data=risultato,
-                            file_name=backup_filename,
-                            mime='application/zip'
-                        )
-                        
-                        # Aggiorna l'ultimo backup
-                        current_time = datetime.now()
-                        with open('last_backup.txt', 'w') as f:
-                            f.write(current_time.strftime("%Y-%m-%d %H:%M:%S"))
-                    else:
-                        st.error(f"Errore durante il backup: {risultato}")
+        # Sezione Backup Manuale
+        st.markdown("### 📦 Esegui Backup Manuale del Database")
+        if st.button("Crea Backup Manuale"):
+            with st.spinner("Eseguendo il backup..."):
+                successo, risultato = backup_database_python(connection)  # Utilizza la nuova funzione
+                if successo:
+                    # Crea un nome file con data e ora
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    backup_filename = f"backup_manual_{timestamp}.zip"
 
-            st.markdown("---")
+                    # Prepara il download del backup
+                    st.success("Backup creato con successo!")
+                    st.download_button(
+                        label="📥 Scarica Backup",
+                        data=risultato,
+                        file_name=backup_filename,
+                        mime="application/zip"
+                    )
+                    
+                    # Aggiorna l'ultimo backup
+                    current_time = datetime.now()
+                    with open('last_backup.txt', 'w') as f:
+                        f.write(current_time.strftime("%Y-%m-%d %H:%M:%S"))
+                else:
+                    st.error(f"Errore durante il backup: {risultato}")
 
-            # Sezione Ripristino del Database
-            st.markdown("### 🔄 Ripristina il Database da un Backup")
-            with st.form("form_ripristino"):
-                backup_file = st.file_uploader("Carica il file di backup ZIP contenente i CSV delle tabelle", type=["zip"])
-                ripristina_button = st.form_submit_button("Ripristina Database")
+        st.markdown("---")
 
-                if ripristina_button:
-                    if backup_file is not None:
-                        try:
-                            backup_zip_bytes = backup_file.read()
-                            with st.spinner("Ripristinando il database..."):
-                                successo, messaggio = restore_database_python(connection, backup_zip_bytes)  # Utilizza la nuova funzione
-                                if successo:
-                                    st.success(messaggio)
-                                    # Aggiorna l'ultimo backup
-                                    current_time = datetime.now()
-                                    with open('last_backup.txt', 'w') as f:
-                                        f.write(current_time.strftime("%Y-%m-%d %H:%M:%S"))
-                                else:
-                                    st.error(messaggio)
-                        except Exception as e:
-                            st.error(f"Errore durante il ripristino: {e}")
-                    else:
-                        st.error("🔴 Devi caricare un file di backup valido.")
+        # Sezione Ripristino del Database
+        st.markdown("### 🔄 Ripristina il Database da un Backup")
+        with st.form("form_ripristino"):
+            backup_file = st.file_uploader("Carica il file di backup ZIP contenente i CSV delle tabelle", type=["zip"])
+            ripristina_button = st.form_submit_button("Ripristina Database")
+
+            if ripristina_button:
+                if backup_file is not None:
+                    try:
+                        backup_zip_bytes = backup_file.read()
+                        with st.spinner("Ripristinando il database..."):
+                            successo, messaggio = restore_database_python(connection, backup_zip_bytes)  # Utilizza la nuova funzione
+                            if successo:
+                                st.success(messaggio)
+                                # Aggiorna l'ultimo backup
+                                current_time = datetime.now()
+                                with open('last_backup.txt', 'w') as f:
+                                    f.write(current_time.strftime("%Y-%m-%d %H:%M:%S"))
+                            else:
+                                st.error(messaggio)
+                    except Exception as e:
+                        st.error(f"Errore durante il ripristino: {e}")
+                else:
+                    st.error("🔴 Devi caricare un file di backup valido.")
 
     # Scheda 6: Esporta/Importa Venditori
     elif st.session_state.active_tab == "Esporta/Importa Venditori":
