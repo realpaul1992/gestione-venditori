@@ -176,7 +176,7 @@ def main():
         if successo:
             st.success(messaggio)
             # Rimuovi il venditore dai dati visualizzati
-            st.session_state.venditori_data = [v for v in st.session_state.venditori_data if v[0] != venditore_id]
+            st.session_state.venditori_data = [v for v in st.session_state.venditori_data if v['id'] != venditore_id]
         else:
             st.error(messaggio)
         st.session_state.delete_confirm_id = None
@@ -347,37 +347,39 @@ def main():
             venditori_display = st.session_state.venditori_data[:st.session_state.display_count]
 
             for record in venditori_display:
-                with st.expander(f"📌 {record[1]}"):
+                with st.expander(f"📌 {record['nome_cognome']}"):
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        st.markdown(f"**Email:** {record[2]}")
-                        st.markdown(f"**Telefono:** {record[3]}")
-                        st.markdown(f"**Città:** {record[4]}")
-                        st.markdown(f"**Esperienza Vendita:** {record[5]} anni")
+                        st.markdown(f"**Email:** {record['email']}")
+                        st.markdown(f"**Telefono:** {record['telefono']}")
+                        st.markdown(f"**Città:** {record['citta']}")
+                        st.markdown(f"**Esperienza Vendita:** {record['esperienza_vendita']} anni")
                     
                     with col2:
-                        st.markdown(f"**Settore:** {record[7]}")
-                        st.markdown(f"**Partita IVA:** {record[8]}")
-                        st.markdown(f"**Agente Iscritto Enasarco:** {record[9]}")
-                        st.markdown(f"**Note:** {record[11]}")
+                        st.markdown(f"**Settore:** {record['settore_esperienza']}")
+                        st.markdown(f"**Partita IVA:** {record['partita_iva']}")
+                        st.markdown(f"**Agente Iscritto Enasarco:** {record['agente_isenarco']}")
+                        st.markdown(f"**Note:** {record['note']}")
                     
-                    st.markdown(f"**Data Creazione:** {record[12].strftime('%Y-%m-%d %H:%M:%S')}")
+                    st.markdown(f"**Data Creazione:** {record['data_creazione'].strftime('%Y-%m-%d %H:%M:%S')}")
                     
                     # Pulsanti di azione organizzati in due colonne
                     action_col1, action_col2 = st.columns([1, 1])
                     
                     with action_col1:
                         # Pulsante di download CV
-                        if record[10]:  # 'cv' è il campo all'indice 10
-                            # Poiché i CV non sono gestiti dal backend, non possiamo scaricarli direttamente
+                        if record['cv']:  # 'cv' è il campo
+                            # Link al CV se disponibile
+                            st.markdown(f"**CV:** [Scarica]({record['cv']})")
+                        else:
                             st.info("**CV:** N/A (Gestisci i CV tramite il backend)")
                     
                     with action_col2:
                         # Pulsante di eliminazione posizionato a destra
-                        delete_button = st.button("🗑️ Elimina", key=f"delete_{record[0]}")
+                        delete_button = st.button("🗑️ Elimina", key=f"delete_{record['id']}")
                         if delete_button:
-                            handle_delete(record[0])
+                            handle_delete(record['id'])
 
             # Pulsante "Carica Altro" per lo scroll infinito
             if st.session_state.display_count < len(st.session_state.venditori_data):
@@ -426,7 +428,12 @@ def main():
             # 2. Numero di Venditori per Settore
             try:
                 cursor = connection.cursor()
-                query_settori = "SELECT settore_esperienza, COUNT(*) as totale FROM venditori GROUP BY settore_esperienza"
+                query_settori = """
+                    SELECT s.nome AS settore, COUNT(v.id) as totale
+                    FROM venditori v
+                    JOIN settori s ON v.settore_id = s.id
+                    GROUP BY s.nome
+                """
                 cursor.execute(query_settori)
                 records_settori = cursor.fetchall()
                 df_settori = pd.DataFrame(records_settori, columns=['settore_esperienza', 'totale'])
@@ -465,7 +472,13 @@ def main():
             # 4. Città con più Venditori
             try:
                 cursor = connection.cursor()
-                query_citta = "SELECT citta, COUNT(*) as totale FROM venditori GROUP BY citta ORDER BY totale DESC LIMIT 10"
+                query_citta = """
+                    SELECT citta, COUNT(*) as totale 
+                    FROM venditori 
+                    GROUP BY citta 
+                    ORDER BY totale DESC 
+                    LIMIT 10
+                """
                 cursor.execute(query_citta)
                 records_citta = cursor.fetchall()
                 df_citta = pd.DataFrame(records_citta, columns=['citta', 'totale'])
@@ -505,7 +518,7 @@ def main():
                     }
                     
                     try:
-                        # Supponiamo che FastAPI abbia un endpoint `/aggiungi_settore`
+                        # Endpoint `/aggiungi_settore`
                         response = requests.post(f"{API_URL}/aggiungi_settore", json=settore_data, headers=headers)
                         if response.status_code == 200:
                             st.success(f"Settore **'{nuovo_settore}'** aggiunto con successo!")
@@ -549,7 +562,7 @@ def main():
             )
             if records_modifica:
                 # Creiamo una lista di venditori da selezionare
-                venditori_list = {f"{record[1]} (ID: {record[0]})": record for record in records_modifica}
+                venditori_list = {f"{record['nome_cognome']} (ID: {record['id']})": record for record in records_modifica}
                 venditore_selezionato = st.selectbox("Seleziona il Venditore da Modificare", list(venditori_list.keys()))
                 
                 if venditore_selezionato:
@@ -566,17 +579,20 @@ def main():
             st.subheader("📝 Aggiorna Profilo Venditore")
 
             # **Correzione Indice per CV**
-            if venditore[10] and os.path.exists(venditore[10]):
+            if venditore['cv'] and venditore['cv'].strip() != "":
                 try:
-                    with open(venditore[10], "rb") as f:
-                        cv_bytes = f.read()
-                    st.download_button(
-                        label="📄 Scarica CV Esistente",
-                        data=cv_bytes,
-                        file_name=os.path.basename(venditore[10]),
-                        mime="application/pdf",
-                        key=f"download_existing_{venditore[0]}"
-                    )
+                    # Scarica il file CV da URL
+                    response_cv = requests.get(venditore['cv'])
+                    if response_cv.status_code == 200:
+                        st.download_button(
+                            label="📄 Scarica CV Esistente",
+                            data=response_cv.content,
+                            file_name=os.path.basename(venditore['cv']),
+                            mime="application/pdf",
+                            key=f"download_existing_{venditore['id']}"
+                        )
+                    else:
+                        st.error("Errore nel scaricare il CV.")
                 except Exception as e:
                     st.error(f"Errore nel leggere il CV: {e}")
             else:
@@ -588,14 +604,14 @@ def main():
                 col1, col2, col3 = st.columns(3)
                 
                 with col1:
-                    nome_cognome_mod = st.text_input("Nome e Cognome", value=venditore[1], key="nome_cognome_mod")
-                    email_mod = st.text_input("Email", value=venditore[2], key="email_mod")
-                    telefono_mod = st.text_input("Telefono", value=venditore[3], key="telefono_mod")
+                    nome_cognome_mod = st.text_input("Nome e Cognome", value=venditore['nome_cognome'], key="nome_cognome_mod")
+                    email_mod = st.text_input("Email", value=venditore['email'], key="email_mod")
+                    telefono_mod = st.text_input("Telefono", value=venditore['telefono'], key="telefono_mod")
                 
                 with col2:
                     if all_cities:
-                        if venditore[4] in all_cities:
-                            index_citta = all_cities.index(venditore[4])
+                        if venditore['citta'] in all_cities:
+                            index_citta = all_cities.index(venditore['citta'])
                         else:
                             index_citta = 0
                         citta_mod = st.selectbox("Città", all_cities, index=index_citta, key="citta_mod")
@@ -604,21 +620,21 @@ def main():
                     esperienza_vendita_mod = st.select_slider(
                         "Esperienza nella vendita (anni)", 
                         options=list(range(0, 101)), 
-                        value=venditore[5],
+                        value=venditore['esperienza_vendita'],
                         key="esperienza_vendita_mod"
                     )
                     anno_nascita_mod = st.selectbox(
                         "Anno di Nascita", 
                         options=list(range(1900, 2025)),
-                        index=anno_nascita_index(venditore[6]),
+                        index=anno_nascita_index(venditore['anno_nascita']),
                         key="anno_nascita_mod"
                     )
                 
                 with col3:
                     settori = get_settori(connection)
                     if settori:
-                        if venditore[7] in settori:
-                            index_settore = settori.index(venditore[7])
+                        if venditore['settore_esperienza'] in settori:
+                            index_settore = settori.index(venditore['settore_esperienza'])
                         else:
                             index_settore = 0
                         settore_esperienza_mod = st.selectbox(
@@ -636,13 +652,13 @@ def main():
                     partita_iva_mod = st.selectbox(
                         "Partita IVA", 
                         options=["Sì", "No"],
-                        index=0 if venditore[8] == "Sì" else 1,
+                        index=0 if venditore['partita_iva'] == "Sì" else 1,
                         key="partita_iva_mod"
                     )
                     agente_isenarco_mod = st.selectbox(
                         "Agente Iscritto Enasarco", 
                         options=["Sì", "No"],
-                        index=0 if venditore[9] == "Sì" else 1,
+                        index=0 if venditore['agente_isenarco'] == "Sì" else 1,
                         key="agente_isenarco_mod"
                     )
                 
@@ -653,7 +669,7 @@ def main():
                 with col4:
                     cv_file_mod = st.file_uploader("Carica il nuovo CV (PDF)", type=['pdf'], key="cv_file_mod_tab4")
                 with col5:
-                    note_mod = st.text_area("Aggiungi o modifica le note sul profilo del venditore", value=venditore[11] if venditore[11] else "", key="note_mod_tab4")
+                    note_mod = st.text_area("Aggiungi o modifica le note sul profilo del venditore", value=venditore['note'] if venditore['note'] else "", key="note_mod_tab4")
                 
                 aggiorna_button = st.form_submit_button("Aggiorna Profilo")
                 
@@ -666,7 +682,6 @@ def main():
                     
                     # Prepara i dati da inviare al backend FastAPI per aggiornare il venditore
                     data_update = {
-                        "id": venditore[0],
                         "nome_cognome": nome_cognome_mod,
                         "email": email_mod,
                         "telefono": telefono_mod,
@@ -677,7 +692,7 @@ def main():
                         "partita_iva": partita_iva_mod,
                         "agente_isenarco": agente_isenarco_mod,
                         "cv": cv_url_mod if cv_url_mod else "",  # Invia una stringa vuota se cv_url_mod è None
-                        "note": note_mod.strip() if note_mod else ""  # Invia una stringa vuota se note_mod è None
+                        "note": note_mod.strip() if note_mod else ""  # Invia una stringa vuota se note è None
                     }
                     
                     # Leggi i segreti di Streamlit
@@ -690,7 +705,7 @@ def main():
                     }
                     
                     try:
-                        # Supponiamo che il backend FastAPI supporti un endpoint per aggiornare i venditori, ad esempio `/inserisci_venditore`
+                        # Utilizziamo lo stesso endpoint `/inserisci_venditore` per aggiornare
                         # Poiché FastAPI ha `ON DUPLICATE KEY UPDATE`, può gestire sia inserimenti che aggiornamenti
                         response = requests.post(API_URL, json=data_update, headers=headers)
                         if response.status_code == 200:
