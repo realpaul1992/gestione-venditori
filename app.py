@@ -273,7 +273,7 @@ def main():
                     }
                     
                     try:
-                        response = requests.post(API_URL, json=data, headers=headers)
+                        response = requests.post(API_URL + "/inserisci_venditore", json=data, headers=headers)
                         if response.status_code == 200:
                             st.success("Venditore inserito o aggiornato con successo!")
                             # Aggiorna lo stato dei venditori
@@ -415,7 +415,7 @@ def main():
             # 1. Numero Totale di Venditori
             try:
                 cursor = connection.cursor()
-                query_totale = "SELECT COUNT(*) as totale FROM venditori"
+                query_totale = "SELECT COUNT(*) as totale FROM Venditori"
                 cursor.execute(query_totale)
                 df_totale = cursor.fetchone()
                 totale_venditori = df_totale[0] if df_totale else 0
@@ -429,18 +429,17 @@ def main():
             try:
                 cursor = connection.cursor()
                 query_settori = """
-                    SELECT s.nome AS settore, COUNT(v.id) as totale
-                    FROM venditori v
-                    JOIN settori s ON v.settore_id = s.id
-                    GROUP BY s.nome
+                    SELECT settore_esperienza AS settore, COUNT(id) AS totale
+                    FROM Venditori
+                    GROUP BY settore_esperienza
                 """
                 cursor.execute(query_settori)
                 records_settori = cursor.fetchall()
-                df_settori = pd.DataFrame(records_settori, columns=['settore_esperienza', 'totale'])
-                fig_settori = px.bar(df_settori, x='settore_esperienza', y='totale',
+                df_settori = pd.DataFrame(records_settori, columns=['settore', 'totale'])
+                fig_settori = px.bar(df_settori, x='settore', y='totale',
                                      title="Numero di Venditori per Settore",
-                                     labels={'settore_esperienza': 'Settore', 'totale': 'Totale Venditori'},
-                                     color='settore_esperienza', template='plotly_white')  # Cambiato template
+                                     labels={'settore': 'Settore', 'totale': 'Totale Venditori'},
+                                     color='settore', template='plotly_white')
                 st.plotly_chart(fig_settori, use_container_width=True)
                 cursor.close()
             except Exception as e:
@@ -455,14 +454,14 @@ def main():
             # 3. Distribuzione delle Esperienze nella Vendita
             try:
                 cursor = connection.cursor()
-                query_esperienza = "SELECT esperienza_vendita, COUNT(*) as totale FROM venditori GROUP BY esperienza_vendita ORDER BY esperienza_vendita"
+                query_esperienza = "SELECT esperienza_vendita, COUNT(*) as totale FROM Venditori GROUP BY esperienza_vendita ORDER BY esperienza_vendita"
                 cursor.execute(query_esperienza)
                 records_esperienza = cursor.fetchall()
                 df_esperienza = pd.DataFrame(records_esperienza, columns=['esperienza_vendita', 'totale'])
                 fig_esperienza = px.histogram(df_esperienza, x='esperienza_vendita', y='totale',
                                              title="Distribuzione delle Esperienze nella Vendita",
                                              labels={'esperienza_vendita': 'Esperienza (anni)', 'totale': 'Totale Venditori'},
-                                             nbins=20, template='plotly_white')  # Cambiato template
+                                             nbins=20, template='plotly_white')
                 st.plotly_chart(fig_esperienza, use_container_width=True)
                 cursor.close()
             except Exception as e:
@@ -474,7 +473,7 @@ def main():
                 cursor = connection.cursor()
                 query_citta = """
                     SELECT citta, COUNT(*) as totale 
-                    FROM venditori 
+                    FROM Venditori 
                     GROUP BY citta 
                     ORDER BY totale DESC 
                     LIMIT 10
@@ -484,7 +483,7 @@ def main():
                 df_citta = pd.DataFrame(records_citta, columns=['citta', 'totale'])
                 fig_citta = px.pie(df_citta, names='citta', values='totale',
                                    title="Città con più Venditori",
-                                   hole=0.3, template='plotly_white')  # Cambiato template
+                                   hole=0.3, template='plotly_white')
                 st.plotly_chart(fig_citta, use_container_width=True)
                 cursor.close()
             except Exception as e:
@@ -707,7 +706,7 @@ def main():
                     try:
                         # Utilizziamo lo stesso endpoint `/inserisci_venditore` per aggiornare
                         # Poiché FastAPI ha `ON DUPLICATE KEY UPDATE`, può gestire sia inserimenti che aggiornamenti
-                        response = requests.post(API_URL, json=data_update, headers=headers)
+                        response = requests.post(API_URL + "/inserisci_venditore", json=data_update, headers=headers)
                         if response.status_code == 200:
                             st.success("Profilo venditore aggiornato con successo!")
                             # Aggiorna lo stato dei venditori
