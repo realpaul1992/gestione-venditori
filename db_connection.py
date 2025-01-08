@@ -1,4 +1,4 @@
-# db_connection.py
+# backend/db_connection.py
 
 import mysql.connector
 from mysql.connector import Error
@@ -34,7 +34,7 @@ def initialize_settori(connection):
     try:
         cursor = connection.cursor()
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS Settori (
+            CREATE TABLE IF NOT EXISTS settori (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 nome VARCHAR(255) UNIQUE NOT NULL
             )
@@ -42,7 +42,7 @@ def initialize_settori(connection):
         connection.commit()
         cursor.close()
     except Error as e:
-        print(f"Errore nell'inizializzare la tabella Settori: {e}")
+        print(f"Errore nell'inizializzare la tabella settori: {e}")
 
 def add_settore(connection, nome_settore):
     """
@@ -53,7 +53,7 @@ def add_settore(connection, nome_settore):
     """
     try:
         cursor = connection.cursor()
-        query = "INSERT INTO Settori (nome) VALUES (%s)"
+        query = "INSERT INTO settori (nome) VALUES (%s)"
         cursor.execute(query, (nome_settore,))
         connection.commit()
         cursor.close()
@@ -73,63 +73,13 @@ def get_settori(connection):
     """
     try:
         cursor = connection.cursor()
-        cursor.execute("SELECT nome FROM Settori ORDER BY nome ASC")
+        cursor.execute("SELECT nome FROM settori ORDER BY nome ASC")
         records = cursor.fetchall()
         cursor.close()
         return [record[0] for record in records]
     except Error as e:
         print(f"Errore nel recuperare i settori: {e}")
         return []
-
-def add_venditore(connection, venditore):
-    """
-    Aggiunge un nuovo venditore al database.
-    :param connection: Connessione al database.
-    :param venditore: Dizionario contenente i dati del venditore.
-    :return: Bool. True se aggiunto con successo, False altrimenti.
-    """
-    try:
-        cursor = connection.cursor()
-        query = """
-            INSERT INTO Venditori 
-            (nome_cognome, email, telefono, citta, esperienza_vendita, 
-             anno_nascita, settore_esperienza, partita_iva, agente_isenarco, cv, note, data_creazione)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-            ON DUPLICATE KEY UPDATE
-                nome_cognome=VALUES(nome_cognome),
-                telefono=VALUES(telefono),
-                citta=VALUES(citta),
-                esperienza_vendita=VALUES(esperienza_vendita),
-                anno_nascita=VALUES(anno_nascita),
-                settore_esperienza=VALUES(settore_esperienza),
-                partita_iva=VALUES(partita_iva),
-                agente_isenarco=VALUES(agente_isenarco),
-                cv=VALUES(cv),
-                note=VALUES(note)
-        """
-        cursor.execute(query, (
-            venditore['nome_cognome'],
-            venditore['email'],
-            venditore['telefono'],
-            venditore['citta'],
-            venditore['esperienza_vendita'],
-            venditore['anno_nascita'],
-            venditore['settore_esperienza'],
-            venditore['partita_iva'],
-            venditore['agente_isenarco'],
-            venditore['cv'],
-            venditore['note']
-        ))
-        connection.commit()
-        cursor.close()
-        return True
-    except mysql.connector.IntegrityError as e:
-        # Email duplicata o altri vincoli violati
-        print(f"Errore nell'aggiungere il venditore: {e}")
-        return False
-    except Error as e:
-        print(f"Errore nell'aggiungere il venditore: {e}")
-        return False
 
 def search_venditori(connection, nome=None, citta=None, settore=None, partita_iva=None, agente_isenarco=None):
     """
@@ -140,10 +90,10 @@ def search_venditori(connection, nome=None, citta=None, settore=None, partita_iv
     :param settore: Settore di esperienza.
     :param partita_iva: "Sì", "No" o None.
     :param agente_isenarco: "Sì", "No" o None.
-    :return: Lista di venditori come dizionari.
+    :return: Lista di venditori.
     """
     try:
-        cursor = connection.cursor(dictionary=True)
+        cursor = connection.cursor()
         query = """
             SELECT 
                 id, 
@@ -159,7 +109,7 @@ def search_venditori(connection, nome=None, citta=None, settore=None, partita_iv
                 cv, 
                 note, 
                 data_creazione
-            FROM Venditori
+            FROM venditori
             WHERE 1=1
         """
         params = []
@@ -173,10 +123,10 @@ def search_venditori(connection, nome=None, citta=None, settore=None, partita_iv
         if settore:
             query += " AND settore_esperienza = %s"
             params.append(settore)
-        if partita_iva and partita_iva != "Tutti":
+        if partita_iva:
             query += " AND partita_iva = %s"
             params.append(partita_iva)
-        if agente_isenarco and agente_isenarco != "Tutti":
+        if agente_isenarco:
             query += " AND agente_isenarco = %s"
             params.append(agente_isenarco)
         
@@ -188,6 +138,33 @@ def search_venditori(connection, nome=None, citta=None, settore=None, partita_iv
         print(f"Errore nella ricerca dei venditori: {e}")
         return []
 
+def add_venditore(connection, venditore):
+    """
+    Aggiunge un nuovo venditore al database.
+    :param connection: Connessione al database.
+    :param venditore: Tuple contenente i dati del venditore.
+    :return: Bool. True se aggiunto con successo, False altrimenti.
+    """
+    try:
+        cursor = connection.cursor()
+        query = """
+            INSERT INTO venditori 
+            (nome_cognome, email, telefono, citta, esperienza_vendita, 
+             anno_nascita, settore_esperienza, partita_iva, agente_isenarco, cv, note, data_creazione)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        """
+        cursor.execute(query, venditore)
+        connection.commit()
+        cursor.close()
+        return True
+    except mysql.connector.IntegrityError as e:
+        # Email duplicata o altri vincoli violati
+        print(f"Errore nell'aggiungere il venditore: {e}")
+        return False
+    except Error as e:
+        print(f"Errore nell'aggiungere il venditore: {e}")
+        return False
+
 def delete_venditore(connection, venditore_id):
     """
     Elimina un venditore dal database basato sull'ID.
@@ -197,7 +174,7 @@ def delete_venditore(connection, venditore_id):
     """
     try:
         cursor = connection.cursor()
-        query = "DELETE FROM Venditori WHERE id = %s"
+        query = "DELETE FROM venditori WHERE id = %s"
         cursor.execute(query, (venditore_id,))
         connection.commit()
         cursor.close()
@@ -205,6 +182,58 @@ def delete_venditore(connection, venditore_id):
     except Error as e:
         print(f"Errore nell'eliminare il venditore: {e}")
         return False, f"Errore nell'eliminare il venditore: {e}"
+
+def update_venditore(connection, venditore_id, nome_cognome, email, telefono, citta, esperienza_vendita, anno_nascita, settore_esperienza, partita_iva, agente_isenarco, cv_path, note):
+    """
+    Aggiorna i dati di un venditore esistente.
+    :param connection: Connessione al database.
+    :param venditore_id: ID del venditore da aggiornare.
+    :param nome_cognome: Nome e cognome aggiornati.
+    :param email: Email aggiornata.
+    :param telefono: Telefono aggiornato.
+    :param citta: Città aggiornata.
+    :param esperienza_vendita: Esperienza nella vendita aggiornata.
+    :param anno_nascita: Anno di nascita aggiornato.
+    :param settore_esperienza: Settore di esperienza aggiornato.
+    :param partita_iva: Partita IVA aggiornata.
+    :param agente_isenarco: Stato di iscrizione Enasarco aggiornato.
+    :param cv_path: Percorso del CV aggiornato.
+    :param note: Note aggiornate.
+    :return: Tuple (successo: bool, messaggio: str)
+    """
+    try:
+        cursor = connection.cursor()
+        query = """
+            UPDATE venditori 
+            SET 
+                nome_cognome = %s,
+                email = %s,
+                telefono = %s,
+                citta = %s,
+                esperienza_vendita = %s,
+                anno_nascita = %s,
+                settore_esperienza = %s,
+                partita_iva = %s,
+                agente_isenarco = %s,
+                cv = %s,
+                note = %s
+            WHERE id = %s
+        """
+        cursor.execute(query, (
+            nome_cognome, email, telefono, citta, esperienza_vendita,
+            anno_nascita, settore_esperienza, partita_iva, agente_isenarco,
+            cv_path, note, venditore_id
+        ))
+        connection.commit()
+        cursor.close()
+        return True, "Venditore aggiornato con successo."
+    except mysql.connector.IntegrityError as e:
+        # Gestisce errori di duplicazione email
+        print(f"Errore nell'aggiornare il venditore: {e}")
+        return False, f"Errore nell'aggiornare il venditore: {e}"
+    except Error as e:
+        print(f"Errore nell'aggiornare il venditore: {e}")
+        return False, f"Errore nell'aggiornare il venditore: {e}"
 
 def backup_database_python(connection):
     """
@@ -226,7 +255,7 @@ def backup_database_python(connection):
                 csv_buffer = StringIO()
                 df.to_csv(csv_buffer, index=False)
                 zipf.writestr(f"{table}.csv", csv_buffer.getvalue())
-
+        
         backup_zip.seek(0)
         return True, backup_zip.getvalue()
     except Exception as e:
@@ -247,15 +276,15 @@ def restore_database_python(connection, backup_zip_bytes):
                     table = file[:-4]  # Rimuove '.csv'
                     df = pd.read_csv(zipf.open(file))
                     cursor = connection.cursor()
-
+                    
                     # Pulizia della tabella prima dell'inserimento
                     cursor.execute(f"TRUNCATE TABLE {table}")
-
+                    
                     # Preparazione dei dati per l'inserimento
                     cols = "`,`".join([str(i) for i in df.columns.tolist()])
                     values = ", ".join(["%s"] * len(df.columns))
                     insert_stmt = f"INSERT INTO `{table}` (`{cols}`) VALUES ({values})"
-
+                    
                     # Inserimento dei dati in batch
                     data = [tuple(row) for row in df.to_numpy()]
                     cursor.executemany(insert_stmt, data)
@@ -264,109 +293,3 @@ def restore_database_python(connection, backup_zip_bytes):
         return True, "Database ripristinato con successo."
     except Exception as e:
         return False, f"Errore durante il ripristino del database: {e}"
-
-def add_venditori_bulk(connection, venditori, overwrite=False):
-    """
-    Aggiunge più venditori al database in una sola operazione.
-    :param connection: Connessione al database.
-    :param venditori: Lista di dizionari contenenti i dati dei venditori.
-    :param overwrite: Bool. Se True, aggiorna i record esistenti. Se False, ignora i duplicati.
-    :return: Tuple (successo: bool, messaggio: str)
-    """
-    try:
-        cursor = connection.cursor()
-        if overwrite:
-            # Aggiorna i record esistenti basati sull'email
-            query_update = """
-                UPDATE Venditori 
-                SET 
-                    nome_cognome = %s,
-                    telefono = %s,
-                    citta = %s,
-                    esperienza_vendita = %s,
-                    anno_nascita = %s,
-                    settore_esperienza = %s,
-                    partita_iva = %s,
-                    agente_isenarco = %s,
-                    cv = %s,
-                    note = %s
-                WHERE email = %s
-            """
-            # Preparare i dati per l'aggiornamento
-            venditori_update = [
-                (
-                    venditore['nome_cognome'],      # nome_cognome
-                    venditore['telefono'],          # telefono
-                    venditore['citta'],             # citta
-                    venditore['esperienza_vendita'],# esperienza_vendita
-                    venditore['anno_nascita'],      # anno_nascita
-                    venditore['settore_esperienza'],# settore_esperienza
-                    venditore['partita_iva'],       # partita_iva
-                    venditore['agente_isenarco'],   # agente_isenarco
-                    venditore['cv'],                # cv
-                    venditore['note'],              # note
-                    venditore['email']              # email
-                )
-                for venditore in venditori
-            ]
-            cursor.executemany(query_update, venditori_update)
-            connection.commit()
-            aggiornati = cursor.rowcount
-            cursor.close()
-            print(f"{aggiornati} venditori aggiornati con successo.")
-            return True, f"{aggiornati} venditori aggiornati con successo."
-        else:
-            # Inserisce solo i venditori non esistenti
-            query_insert = """
-                INSERT INTO Venditori 
-                (nome_cognome, email, telefono, citta, esperienza_vendita, 
-                 anno_nascita, settore_esperienza, partita_iva, agente_isenarco, cv, note, data_creazione)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-            """
-            venditori_insert = [
-                (
-                    venditore['nome_cognome'],
-                    venditore['email'],
-                    venditore['telefono'],
-                    venditore['citta'],
-                    venditore['esperienza_vendita'],
-                    venditore['anno_nascita'],
-                    venditore['settore_esperienza'],
-                    venditore['partita_iva'],
-                    venditore['agente_isenarco'],
-                    venditore['cv'],
-                    venditore['note']
-                )
-                for venditore in venditori
-            ]
-            cursor.executemany(query_insert, venditori_insert)
-            connection.commit()
-            inseriti = cursor.rowcount
-            cursor.close()
-            print(f"{inseriti} venditori aggiunti con successo.")
-            return True, f"{inseriti} venditori aggiunti con successo."
-    except Error as e:
-        print(f"Errore nell'aggiungere/aggiornare i venditori: {e}")
-        return False, f"Errore nell'aggiungere/aggiornare i venditori: {e}"
-
-def get_existing_emails(connection, emails):
-    """
-    Recupera le email che già esistono nel database.
-    :param connection: Connessione al database.
-    :param emails: Lista di email da verificare.
-    :return: Set di email esistenti.
-    """
-    try:
-        cursor = connection.cursor()
-        if not emails:
-            return set()
-        format_strings = ','.join(['%s'] * len(emails))
-        query = f"SELECT email FROM Venditori WHERE email IN ({format_strings})"
-        cursor.execute(query, tuple(emails))
-        records = cursor.fetchall()
-        cursor.close()
-        existing_emails = set(record[0] for record in records)
-        return existing_emails
-    except Error as e:
-        print(f"Errore nel recuperare le email esistenti: {e}")
-        return set()
