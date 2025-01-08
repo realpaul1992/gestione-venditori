@@ -5,10 +5,6 @@ from pydantic import BaseModel, EmailStr
 import mysql.connector
 from mysql.connector import Error
 import os
-from dotenv import load_dotenv
-
-# Carica le variabili d'ambiente dal file .env
-load_dotenv()
 
 app = FastAPI()
 
@@ -31,11 +27,11 @@ def create_connection():
     """
     try:
         connection = mysql.connector.connect(
-            host=os.getenv('DB_HOST'),
-            port=int(os.getenv('DB_PORT')),
-            database=os.getenv('DB_DATABASE'),
-            user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASSWORD')
+            host=os.environ['DB_HOST'],
+            port=int(os.environ['DB_PORT']),
+            database=os.environ['DB_DATABASE'],
+            user=os.environ['DB_USER'],
+            password=os.environ['DB_PASSWORD']
         )
         if connection.is_connected():
             print("Connessione al database avvenuta con successo.")
@@ -125,7 +121,7 @@ async def inserisci_venditore(venditore: Venditore, authorization: str = Header(
     """
     Endpoint per inserire o aggiornare un venditore.
     """
-    expected_token = os.getenv('API_TOKEN')
+    expected_token = os.environ.get('API_TOKEN')
     if authorization != f"Bearer {expected_token}":
         raise HTTPException(status_code=403, detail="Accesso negato.")
     
@@ -143,8 +139,7 @@ async def inserisci_venditore(venditore: Venditore, authorization: str = Header(
             raise HTTPException(status_code=500, detail=f"Settore '{venditore.settore_esperienza}' non trovato o non creato.")
         
         # Prepara i dati del venditore
-        venditore_dict = venditore.dict()
-        venditore_dict['settore_id'] = settore_id
+        venditore.settore_id = settore_id
         
         # Aggiungi il venditore al database
         add_venditore(connection, venditore)
