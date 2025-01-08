@@ -138,7 +138,7 @@ async def inserisci_venditore(venditore: Venditore, authorization: str = Header(
         if not settore_id:
             raise HTTPException(status_code=500, detail=f"Settore '{venditore.settore_esperienza}' non trovato o non creato.")
         
-        # Prepara i dati del venditore
+        # Assegna l'ID del settore al venditore
         venditore.settore_id = settore_id
         
         # Aggiungi il venditore al database
