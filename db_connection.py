@@ -6,6 +6,7 @@ import os
 import pandas as pd
 from io import StringIO, BytesIO
 import zipfile
+from datetime import datetime
 
 def create_connection():
     """
@@ -100,7 +101,7 @@ def add_venditore(connection, venditore):
     """
     Aggiunge un nuovo venditore al database.
     :param connection: Connessione al database.
-    :param venditore: Tuple contenente i dati del venditore.
+    :param venditore: Dizionario contenente i dati del venditore.
     :return: Bool. True se aggiunto con successo, False altrimenti.
     """
     try:
@@ -108,10 +109,33 @@ def add_venditore(connection, venditore):
         query = """
             INSERT INTO venditori 
             (nome_cognome, email, telefono, citta, esperienza_vendita, 
-             anno_nascita, settore_esperienza, partita_iva, agente_isenarco, cv, note, data_creazione)
+             anno_nascita, settore_id, partita_iva, agente_isenarco, cv, note, data_creazione)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+            ON DUPLICATE KEY UPDATE
+                nome_cognome=VALUES(nome_cognome),
+                telefono=VALUES(telefono),
+                citta=VALUES(citta),
+                esperienza_vendita=VALUES(esperienza_vendita),
+                anno_nascita=VALUES(anno_nascita),
+                settore_id=VALUES(settore_id),
+                partita_iva=VALUES(partita_iva),
+                agente_isenarco=VALUES(agente_isenarco),
+                cv=VALUES(cv),
+                note=VALUES(note)
         """
-        cursor.execute(query, venditore)
+        cursor.execute(query, (
+            venditore['nome_cognome'],
+            venditore['email'],
+            venditore['telefono'],
+            venditore['citta'],
+            venditore['esperienza_vendita'],
+            venditore['anno_nascita'],
+            venditore['settore_id'],
+            venditore['partita_iva'],
+            venditore['agente_isenarco'],
+            venditore['cv'],
+            venditore['note']
+        ))
         connection.commit()
         cursor.close()
         return True
@@ -132,44 +156,45 @@ def search_venditori(connection, nome=None, citta=None, settore=None, partita_iv
     :param settore: Settore di esperienza.
     :param partita_iva: "Sì", "No" o None.
     :param agente_isenarco: "Sì", "No" o None.
-    :return: Lista di venditori.
+    :return: Lista di venditori come dizionari.
     """
     try:
-        cursor = connection.cursor()
+        cursor = connection.cursor(dictionary=True)
         query = """
             SELECT 
-                id, 
-                nome_cognome, 
-                email, 
-                telefono, 
-                citta, 
-                esperienza_vendita, 
-                anno_nascita, 
-                settore_esperienza, 
-                partita_iva, 
-                agente_isenarco, 
-                cv, 
-                note, 
-                data_creazione
-            FROM venditori
+                v.id, 
+                v.nome_cognome, 
+                v.email, 
+                v.telefono, 
+                v.citta, 
+                v.esperienza_vendita, 
+                v.anno_nascita, 
+                s.nome AS settore_esperienza, 
+                v.partita_iva, 
+                v.agente_isenarco, 
+                v.cv, 
+                v.note, 
+                v.data_creazione
+            FROM venditori v
+            LEFT JOIN settori s ON v.settore_id = s.id
             WHERE 1=1
         """
         params = []
         
         if nome:
-            query += " AND nome_cognome LIKE %s"
+            query += " AND v.nome_cognome LIKE %s"
             params.append(f"%{nome}%")
         if citta:
-            query += " AND citta = %s"
+            query += " AND v.citta = %s"
             params.append(citta)
         if settore:
-            query += " AND settore_esperienza = %s"
+            query += " AND s.nome = %s"
             params.append(settore)
-        if partita_iva:
-            query += " AND partita_iva = %s"
+        if partita_iva and partita_iva != "Tutti":
+            query += " AND v.partita_iva = %s"
             params.append(partita_iva)
-        if agente_isenarco:
-            query += " AND agente_isenarco = %s"
+        if agente_isenarco and agente_isenarco != "Tutti":
+            query += " AND v.agente_isenarco = %s"
             params.append(agente_isenarco)
         
         cursor.execute(query, tuple(params))
@@ -198,7 +223,7 @@ def delete_venditore(connection, venditore_id):
         print(f"Errore nell'eliminare il venditore: {e}")
         return False, f"Errore nell'eliminare il venditore: {e}"
 
-def update_venditore(connection, venditore_id, nome_cognome, email, telefono, citta, esperienza_vendita, anno_nascita, settore_esperienza, partita_iva, agente_isenarco, cv_path, note):
+def update_venditore(connection, venditore_id, nome_cognome, email, telefono, citta, esperienza_vendita, anno_nascita, settore_id, partita_iva, agente_isenarco, cv_path, note):
     """
     Aggiorna i dati di un venditore esistente.
     :param connection: Connessione al database.
@@ -209,7 +234,7 @@ def update_venditore(connection, venditore_id, nome_cognome, email, telefono, ci
     :param citta: Città aggiornata.
     :param esperienza_vendita: Esperienza nella vendita aggiornata.
     :param anno_nascita: Anno di nascita aggiornato.
-    :param settore_esperienza: Settore di esperienza aggiornato.
+    :param settore_id: ID del settore di esperienza aggiornato.
     :param partita_iva: Partita IVA aggiornata.
     :param agente_isenarco: Stato di iscrizione Enasarco aggiornato.
     :param cv_path: Percorso del CV aggiornato.
@@ -227,7 +252,7 @@ def update_venditore(connection, venditore_id, nome_cognome, email, telefono, ci
                 citta = %s,
                 esperienza_vendita = %s,
                 anno_nascita = %s,
-                settore_esperienza = %s,
+                settore_id = %s,
                 partita_iva = %s,
                 agente_isenarco = %s,
                 cv = %s,
@@ -236,7 +261,7 @@ def update_venditore(connection, venditore_id, nome_cognome, email, telefono, ci
         """
         cursor.execute(query, (
             nome_cognome, email, telefono, citta, esperienza_vendita,
-            anno_nascita, settore_esperienza, partita_iva, agente_isenarco,
+            anno_nascita, settore_id, partita_iva, agente_isenarco,
             cv_path, note, venditore_id
         ))
         connection.commit()
@@ -288,7 +313,7 @@ def backup_database_python(connection):
                 csv_buffer = StringIO()
                 df.to_csv(csv_buffer, index=False)
                 zipf.writestr(f"{table}.csv", csv_buffer.getvalue())
-        
+
         backup_zip.seek(0)
         return True, backup_zip.getvalue()
     except Exception as e:
@@ -309,15 +334,15 @@ def restore_database_python(connection, backup_zip_bytes):
                     table = file[:-4]  # Rimuove '.csv'
                     df = pd.read_csv(zipf.open(file))
                     cursor = connection.cursor()
-                    
+
                     # Pulizia della tabella prima dell'inserimento
                     cursor.execute(f"TRUNCATE TABLE {table}")
-                    
+
                     # Preparazione dei dati per l'inserimento
                     cols = "`,`".join([str(i) for i in df.columns.tolist()])
                     values = ", ".join(["%s"] * len(df.columns))
                     insert_stmt = f"INSERT INTO `{table}` (`{cols}`) VALUES ({values})"
-                    
+
                     # Inserimento dei dati in batch
                     data = [tuple(row) for row in df.to_numpy()]
                     cursor.executemany(insert_stmt, data)
@@ -331,7 +356,7 @@ def add_venditori_bulk(connection, venditori, overwrite=False):
     """
     Aggiunge più venditori al database in una sola operazione.
     :param connection: Connessione al database.
-    :param venditori: Lista di tuple contenenti i dati dei venditori.
+    :param venditori: Lista di dizionari contenenti i dati dei venditori.
     :param overwrite: Bool. Se True, aggiorna i record esistenti. Se False, ignora i duplicati.
     :return: Tuple (successo: bool, messaggio: str)
     """
@@ -347,7 +372,7 @@ def add_venditori_bulk(connection, venditori, overwrite=False):
                     citta = %s,
                     esperienza_vendita = %s,
                     anno_nascita = %s,
-                    settore_esperienza = %s,
+                    settore_id = %s,
                     partita_iva = %s,
                     agente_isenarco = %s,
                     cv = %s,
@@ -357,17 +382,17 @@ def add_venditori_bulk(connection, venditori, overwrite=False):
             # Preparare i dati per l'aggiornamento
             venditori_update = [
                 (
-                    venditore[0],  # nome_cognome
-                    venditore[2],  # telefono
-                    venditore[3],  # citta
-                    venditore[4],  # esperienza_vendita
-                    venditore[5],  # anno_nascita
-                    venditore[6],  # settore_esperienza
-                    venditore[7],  # partita_iva
-                    venditore[8],  # agente_isenarco
-                    venditore[9],  # cv
-                    venditore[10], # note
-                    venditore[1]   # email
+                    venditore['nome_cognome'],  # nome_cognome
+                    venditore['telefono'],      # telefono
+                    venditore['citta'],         # citta
+                    venditore['esperienza_vendita'],  # esperienza_vendita
+                    venditore['anno_nascita'],  # anno_nascita
+                    venditore['settore_id'],    # settore_id
+                    venditore['partita_iva'],   # partita_iva
+                    venditore['agente_isenarco'],  # agente_isenarco
+                    venditore['cv'],            # cv
+                    venditore['note'],          # note
+                    venditore['email']          # email
                 )
                 for venditore in venditori
             ]
@@ -382,10 +407,26 @@ def add_venditori_bulk(connection, venditori, overwrite=False):
             query_insert = """
                 INSERT INTO venditori 
                 (nome_cognome, email, telefono, citta, esperienza_vendita, 
-                 anno_nascita, settore_esperienza, partita_iva, agente_isenarco, cv, note, data_creazione)
+                 anno_nascita, settore_id, partita_iva, agente_isenarco, cv, note, data_creazione)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
             """
-            cursor.executemany(query_insert, venditori)
+            venditori_insert = [
+                (
+                    venditore['nome_cognome'],
+                    venditore['email'],
+                    venditore['telefono'],
+                    venditore['citta'],
+                    venditore['esperienza_vendita'],
+                    venditore['anno_nascita'],
+                    venditore['settore_id'],
+                    venditore['partita_iva'],
+                    venditore['agente_isenarco'],
+                    venditore['cv'],
+                    venditore['note']
+                )
+                for venditore in venditori
+            ]
+            cursor.executemany(query_insert, venditori_insert)
             connection.commit()
             inseriti = cursor.rowcount
             cursor.close()
