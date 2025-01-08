@@ -11,6 +11,11 @@ from db_connection import (
     add_settore,
     get_settori
 )
+import logging
+
+# Configura il logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -43,28 +48,39 @@ def inserisci_venditore(
 ):
     # Autenticazione
     expected_token = os.getenv('API_TOKEN')
-    if authorization != f"Bearer {expected_token}":
+    if not expected_token:
+        logger.error("API_TOKEN non configurato.")
+        raise HTTPException(status_code=500, detail="API_TOKEN non configurato.")
+    
+    if not authorization or authorization != f"Bearer {expected_token}":
+        logger.warning(f"Tentativo di accesso non autorizzato con token: {authorization}")
         raise HTTPException(status_code=403, detail="Accesso negato.")
     
     # Connessione al database
     connection = create_connection()
     if not connection:
+        logger.error("Impossibile connettersi al database.")
         raise HTTPException(status_code=500, detail="Impossibile connettersi al database.")
     
-    # Mappatura settore_esperienza a settore_id
+    # Verifica se il settore esiste nella tabella Settori
     try:
         cursor = connection.cursor()
-        query_settore = "SELECT id FROM settori WHERE nome = %s"
+        query_settore = "SELECT nome FROM Settori WHERE nome = %s"
         cursor.execute(query_settore, (venditore.settore_esperienza,))
         result = cursor.fetchone()
-        if result:
-            settore_id = result[0]
-        else:
-            raise HTTPException(status_code=400, detail=f"Settore '{venditore.settore_esperienza}' non trovato.")
+        if not result:
+            # Settore non esiste, quindi aggiungilo
+            successo_settore = add_settore(connection, venditore.settore_esperienza)
+            if successo_settore:
+                logger.info(f"Settore '{venditore.settore_esperienza}' aggiunto al database.")
+            else:
+                logger.error(f"Errore nell'aggiungere il settore '{venditore.settore_esperienza}'.")
+                raise HTTPException(status_code=500, detail="Errore nell'aggiungere il settore.")
         cursor.close()
     except Exception as e:
+        logger.exception(f"Errore nella verifica del settore: {e}")
         connection.close()
-        raise HTTPException(status_code=500, detail=f"Errore nella mappatura del settore: {e}")
+        raise HTTPException(status_code=500, detail=f"Errore nella verifica del settore: {e}")
     
     # Prepara i dati per l'inserimento
     venditore_data = {
@@ -74,7 +90,7 @@ def inserisci_venditore(
         "citta": venditore.citta,
         "esperienza_vendita": venditore.esperienza_vendita,
         "anno_nascita": venditore.anno_nascita,
-        "settore_id": settore_id,
+        "settore_esperienza": venditore.settore_esperienza,
         "partita_iva": venditore.partita_iva,
         "agente_isenarco": venditore.agente_isenarco,
         "cv": venditore.cv if venditore.cv else "",
@@ -82,12 +98,18 @@ def inserisci_venditore(
     }
     
     # Inserisci o aggiorna il venditore nel database
-    successo = add_venditore(connection, venditore_data)
-    connection.close()
-    
-    if successo:
-        return {"message": "Venditore inserito o aggiornato con successo."}
-    else:
+    try:
+        successo = add_venditore(connection, venditore_data)
+        connection.close()
+        if successo:
+            logger.info(f"Venditore '{venditore.email}' inserito o aggiornato con successo.")
+            return {"message": "Venditore inserito o aggiornato con successo."}
+        else:
+            logger.error(f"Errore nell'inserimento del venditore '{venditore.email}'.")
+            raise HTTPException(status_code=500, detail="Errore nell'inserimento del venditore.")
+    except Exception as e:
+        logger.exception(f"Errore durante l'inserimento/aggiornamento del venditore: {e}")
+        connection.close()
         raise HTTPException(status_code=500, detail="Errore nell'inserimento del venditore.")
 
 @app.post("/aggiungi_settore")
@@ -97,19 +119,31 @@ def aggiungi_settore_endpoint(
 ):
     # Autenticazione
     expected_token = os.getenv('API_TOKEN')
-    if authorization != f"Bearer {expected_token}":
+    if not expected_token:
+        logger.error("API_TOKEN non configurato.")
+        raise HTTPException(status_code=500, detail="API_TOKEN non configurato.")
+    
+    if not authorization or authorization != f"Bearer {expected_token}":
+        logger.warning(f"Tentativo di accesso non autorizzato con token: {authorization}")
         raise HTTPException(status_code=403, detail="Accesso negato.")
     
     # Connessione al database
     connection = create_connection()
     if not connection:
+        logger.error("Impossibile connettersi al database.")
         raise HTTPException(status_code=500, detail="Impossibile connettersi al database.")
     
     # Aggiungi il settore nel database
-    successo = add_settore(connection, settore.settore)
-    connection.close()
-    
-    if successo:
-        return {"message": f"Settore '{settore.settore}' aggiunto con successo."}
-    else:
-        raise HTTPException(status_code=400, detail=f"Settore '{settore.settore}' già esistente o errore nell'inserimento.")
+    try:
+        successo = add_settore(connection, settore.settore)
+        connection.close()
+        if successo:
+            logger.info(f"Settore '{settore.settore}' aggiunto con successo.")
+            return {"message": f"Settore '{settore.settore}' aggiunto con successo."}
+        else:
+            logger.warning(f"Settore '{settore.settore}' già esistente o errore nell'inserimento.")
+            raise HTTPException(status_code=400, detail=f"Settore '{settore.settore}' già esistente o errore nell'inserimento.")
+    except Exception as e:
+        logger.exception(f"Errore durante l'aggiunta del settore: {e}")
+        connection.close()
+        raise HTTPException(status_code=500, detail=f"Errore durante l'aggiunta del settore: {e}")
