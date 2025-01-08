@@ -5,9 +5,25 @@ from pydantic import BaseModel, EmailStr
 import mysql.connector
 from mysql.connector import Error
 import os
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
+# Configurazione CORS
+origins = [
+    "https://your-streamlit-app.streamlit.app",  # Sostituisci con il tuo URL Streamlit
+    "http://localhost:8501",  # Per test locale
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # Permetti solo queste origini
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Modello Pydantic per il venditore
 class Venditore(BaseModel):
     nome_cognome: str
     email: EmailStr
@@ -72,7 +88,7 @@ def get_settore_id(connection, nome_settore):
         print(f"Errore nel recuperare l'ID del settore '{nome_settore}': {e}")
         return None
 
-def add_venditore(connection, venditore):
+def add_venditore(connection, venditore: Venditore, settore_id: int):
     """
     Aggiunge un nuovo venditore al database.
     """
@@ -81,7 +97,7 @@ def add_venditore(connection, venditore):
         query = """
             INSERT INTO venditori 
             (nome_cognome, email, telefono, citta, esperienza_vendita, 
-             anno_nascita, settore_esperienza, partita_iva, agente_isenarco, cv, note, data_creazione)
+             anno_nascita, settore_id, partita_iva, agente_isenarco, cv, note, data_creazione)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
             ON DUPLICATE KEY UPDATE 
                 nome_cognome = VALUES(nome_cognome),
@@ -89,7 +105,7 @@ def add_venditore(connection, venditore):
                 citta = VALUES(citta),
                 esperienza_vendita = VALUES(esperienza_vendita),
                 anno_nascita = VALUES(anno_nascita),
-                settore_esperienza = VALUES(settore_esperienza),
+                settore_id = VALUES(settore_id),
                 partita_iva = VALUES(partita_iva),
                 agente_isenarco = VALUES(agente_isenarco),
                 cv = VALUES(cv),
@@ -103,7 +119,7 @@ def add_venditore(connection, venditore):
             venditore.citta,
             venditore.esperienza_vendita,
             venditore.anno_nascita,
-            venditore.settore_id,
+            settore_id,
             venditore.partita_iva,
             venditore.agente_isenarco,
             venditore.cv,
@@ -138,11 +154,8 @@ async def inserisci_venditore(venditore: Venditore, authorization: str = Header(
         if not settore_id:
             raise HTTPException(status_code=500, detail=f"Settore '{venditore.settore_esperienza}' non trovato o non creato.")
         
-        # Assegna l'ID del settore al venditore
-        venditore.settore_id = settore_id
-        
         # Aggiungi il venditore al database
-        add_venditore(connection, venditore)
+        add_venditore(connection, venditore, settore_id)
         
         return {"message": "Venditore inserito o aggiornato con successo."}
     
@@ -153,3 +166,10 @@ async def inserisci_venditore(venditore: Venditore, authorization: str = Header(
         if connection.is_connected():
             connection.close()
             print("Connessione al database chiusa.")
+
+@app.get("/test")
+def test_endpoint():
+    """
+    Endpoint di test per verificare il funzionamento dell'API.
+    """
+    return {"status": "API is working!"}
